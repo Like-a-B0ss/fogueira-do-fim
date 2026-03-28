@@ -64,6 +64,11 @@ def society_panel_layout(game) -> dict[str, pygame.Rect]:
     }
 
 
+def society_card_height(game, survivor) -> int:
+    selected = getattr(game, "society_selected_survivor_name", None) == getattr(survivor, "name", None)
+    return 152 if selected else 58
+
+
 def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
     """Centraliza a geometria do painel inferior de conversa."""
     panel = pygame.Rect(18, SCREEN_HEIGHT - 206, max(420, SCREEN_WIDTH - 420), 188)
@@ -71,15 +76,19 @@ def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
     viewport = pygame.Rect(panel.x + 14, panel.y + 42, panel.width - 36, 96)
     scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)
     buttons = []
-    button_width = (panel.width - 46) // 2
+    survivor = _game.active_dialog_survivor()
+    option_count = len(_game.conversation_options_for_survivor(survivor)) if survivor else 0
+    columns = 3 if option_count > 4 else 2
+    button_gap = 6
+    button_width = (panel.width - 28 - button_gap * (columns - 1)) // columns
     button_height = 24
     top = viewport.bottom + 10
-    for index in range(4):
-        col = index % 2
-        row = index // 2
+    for index in range(max(4, option_count)):
+        col = index % columns
+        row = index // columns
         buttons.append(
             pygame.Rect(
-                panel.x + 14 + col * (button_width + 6),
+                panel.x + 14 + col * (button_width + button_gap),
                 top + row * (button_height + 8),
                 button_width,
                 button_height,
@@ -94,14 +103,16 @@ def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
     }
 
 
-def society_card_step(_game) -> int:
-    return 60
+def society_card_step(game, survivor=None) -> int:
+    if survivor is None:
+        return 66
+    return society_card_height(game, survivor) + 8
 
 
 def society_content_height(game) -> int:
     if not game.survivors:
         return 0
-    return len(game.survivors) * society_card_step(game) - 8
+    return sum(society_card_step(game, survivor) for survivor in game.survivors) - 8
 
 
 def society_max_scroll(game) -> float:
@@ -174,5 +185,22 @@ def handle_society_panel_input(game) -> bool:
         game.society_scroll = max_scroll * ratio
         game.audio.play_ui("focus")
         return True
+
+    viewport = layout["viewport"]
+    if viewport.collidepoint(mouse_pos):
+        card_y = viewport.y - int(game.society_scroll)
+        for survivor in game.survivors:
+            height = society_card_height(game, survivor)
+            rect = pygame.Rect(viewport.x, card_y, viewport.width, height)
+            if rect.collidepoint(mouse_pos):
+                if game.society_selected_survivor_name == survivor.name:
+                    game.society_selected_survivor_name = None
+                    game.audio.play_ui("back")
+                else:
+                    game.society_selected_survivor_name = survivor.name
+                    game.audio.play_ui("focus")
+                game.clamp_society_scroll()
+                return True
+            card_y += society_card_step(game, survivor)
 
     return layout["panel"].collidepoint(mouse_pos)

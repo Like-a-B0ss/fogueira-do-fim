@@ -14,12 +14,14 @@ def draw_chat_panel(game) -> None:
     game.draw_panel(panel)
     survivor = game.active_dialog_survivor()
     if survivor:
+        request = game.pending_build_request_for_survivor(survivor)
         title = game.heading_font.render(f"Falando com {survivor.name}", True, PALETTE["text"])
-        subtitle_text = game.fit_text_to_width(
-            game.ui_small_font,
-            f"{survivor.role}  |  {survivor.primary_trait()}  |  estado {survivor.state_label}",
-            panel.width - 180,
-        )
+        subtitle_base = f"{survivor.role}  |  {survivor.primary_trait()}  |  estado {survivor.state_label}"
+        if request and not request.approved:
+            subtitle_base += f"  |  pedido {request.label.lower()}"
+        elif request and request.approved:
+            subtitle_base += f"  |  obra {int(clamp(request.progress, 0.0, 1.0) * 100)}%"
+        subtitle_text = game.fit_text_to_width(game.ui_small_font, subtitle_base, panel.width - 180)
     else:
         title = game.heading_font.render("Vozes da Clareira", True, PALETTE["text"])
         subtitle_text = "Aproxime-se de um morador e aperte E para conversar direto."
@@ -231,8 +233,9 @@ def draw_hud(game) -> None:
         game.screen.set_clip(viewport)
         card_y = viewport.y - int(game.society_scroll)
         for survivor in game.survivors:
-            game.draw_survivor_card(viewport.x, card_y, viewport.width, 52, survivor)
-            card_y += game.society_card_step()
+            card_height = game.society_card_height(survivor)
+            game.draw_survivor_card(viewport.x, card_y, viewport.width, card_height, survivor)
+            card_y += game.society_card_step(survivor)
         game.screen.set_clip(previous_clip)
 
         pygame.draw.rect(game.screen, (18, 22, 24), viewport, 1, border_radius=12)
@@ -358,6 +361,7 @@ def draw_survivor_card(
     survivor: Survivor,
 ) -> None:
     rect = pygame.Rect(x, y, width, height)
+    selected = getattr(game, "society_selected_survivor_name", None) == survivor.name
     bg = PALETTE["ui_panel"] if survivor.is_alive() else (42, 26, 26)
     if getattr(survivor, "on_expedition", False):
         bg = (30, 42, 54)
@@ -368,8 +372,16 @@ def draw_survivor_card(
     elif getattr(survivor, "insanity", 0.0) > 70:
         bg = (56, 46, 24)
     pygame.draw.rect(game.screen, bg, rect, border_radius=12)
-    pygame.draw.circle(game.screen, survivor.color, (x + 18, y + height // 2), 8)
-    name_text = game.fit_text_to_width(game.body_font, survivor.name, width - 138)
+    pygame.draw.rect(
+        game.screen,
+        PALETTE["accent_soft"] if selected else PALETTE["ui_line"],
+        rect,
+        1,
+        border_radius=12,
+    )
+    avatar_y = y + 22 if selected else y + height // 2
+    pygame.draw.circle(game.screen, survivor.color, (x + 18, avatar_y), 8)
+    name_text = game.fit_text_to_width(game.body_font, survivor.name, width - 120)
     name = game.body_font.render(name_text, True, PALETTE["text"])
     role_label = f"{survivor.role} / {survivor.primary_trait()}"
     if getattr(survivor, "assigned_building_kind", None) == "torre":
@@ -400,30 +412,54 @@ def draw_survivor_card(
     elif survivor.trust_leader < 32:
         state_label = "desconfiado"
     state = game.ui_small_font.render(
-        game.fit_text_to_width(game.ui_small_font, state_label if survivor.is_alive() else "perdido", width - 138),
+        game.fit_text_to_width(game.ui_small_font, state_label if survivor.is_alive() else "perdido", width - 116),
         True,
         PALETTE["danger_soft"] if not survivor.is_alive() else PALETTE["text"],
     )
-    game.screen.blit(name, (x + 34, y + 3))
-    game.screen.blit(role, (x + 34, y + 20))
-    game.screen.blit(state, (x + 34, y + 34))
+    game.screen.blit(name, (x + 34, y + 4))
+    game.screen.blit(role, (x + 34, y + 22))
+    game.screen.blit(state, (x + 34, y + 38))
 
-    ratios = [
-        (survivor.health / survivor.max_health, PALETTE["danger_soft"]),
-        (survivor.energy / 100, PALETTE["energy"]),
-        (survivor.morale / 100, PALETTE["morale"]),
-        (survivor.trust_leader / 100, PALETTE["accent_soft"]),
-    ]
-    for index, (ratio, color) in enumerate(ratios):
-        meter_x = x + width - 88 + index * 20
-        pygame.draw.rect(game.screen, (18, 22, 24), (meter_x, y + 12, 12, 16), border_radius=5)
-        fill_height = int(14 * clamp(ratio, 0, 1))
-        pygame.draw.rect(
-            game.screen,
-            color,
-            (meter_x + 1, y + 13 + (14 - fill_height), 10, fill_height),
-            border_radius=5,
+    hint_text = "clique para fechar" if selected else "clique para detalhes"
+    hint = game.small_font.render(hint_text, True, PALETTE["muted"])
+    hint_rect = hint.get_rect(topright=(rect.right - 12, rect.y + 6))
+    game.screen.blit(hint, hint_rect)
+
+    if not selected:
+        summary = (
+            f"vida {int(survivor.health)}/{int(survivor.max_health)}"
+            f"  |  moral {int(survivor.morale)}"
+            f"  |  confianca {int(survivor.trust_leader)}"
         )
+        summary_surface = game.small_font.render(
+            game.fit_text_to_width(game.small_font, summary, width - 120),
+            True,
+            PALETTE["muted"],
+        )
+        game.screen.blit(summary_surface, (x + 34, y + height - 18))
+        return
+
+    detail_top = y + 60
+    detail_left = x + 16
+    bar_width = width - 32
+
+    def draw_inline_bar(offset_y: int, label: str, ratio: float, color: tuple[int, int, int], value_text: str) -> None:
+        label_surface = game.small_font.render(label, True, PALETTE["muted"])
+        value_surface = game.small_font.render(value_text, True, PALETTE["text"])
+        bar_y = detail_top + offset_y
+        game.screen.blit(label_surface, (detail_left, bar_y))
+        game.screen.blit(value_surface, (rect.right - 16 - value_surface.get_width(), bar_y))
+        track = pygame.Rect(detail_left, bar_y + 14, bar_width, 10)
+        pygame.draw.rect(game.screen, (18, 22, 24), track, border_radius=6)
+        fill = max(6, int(track.width * clamp(ratio, 0, 1))) if ratio > 0 else 0
+        if fill > 0:
+            pygame.draw.rect(game.screen, color, (track.x, track.y, fill, track.height), border_radius=6)
+        pygame.draw.rect(game.screen, PALETTE["ui_line"], track, 1, border_radius=6)
+
+    draw_inline_bar(0, "Vida", survivor.health / max(1.0, survivor.max_health), PALETTE["danger_soft"], f"{int(survivor.health)}/{int(survivor.max_health)}")
+    draw_inline_bar(28, "Energia", survivor.energy / 100, PALETTE["energy"], f"{int(survivor.energy)}")
+    draw_inline_bar(56, "Moral", survivor.morale / 100, PALETTE["morale"], f"{int(survivor.morale)}")
+    draw_inline_bar(84, "Confianca", survivor.trust_leader / 100, PALETTE["accent_soft"], f"{int(survivor.trust_leader)}")
 
 
 def current_objectives(game) -> list[str]:

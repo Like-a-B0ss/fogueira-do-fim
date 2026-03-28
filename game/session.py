@@ -26,7 +26,7 @@ from .config import (
     load_font,
 )
 from .input import InputState, InputSystem
-from .models import Building, DamagePulse, DynamicEvent, Ember, FloatingText, FogMote
+from .models import Building, BuildingRequest, DamagePulse, DynamicEvent, Ember, FloatingText, FogMote
 from .rendering import RenderMixin
 from .scenes import SceneId, SceneManager
 from . import dialogue_helpers, ui_helpers
@@ -77,8 +77,12 @@ class Game(WorldMixin, RenderMixin):
         self.title_bg_phase = 0.0
         self.title_bg_spawn_timer = 8.0
         self.bark_timer = 3.2
+        self.exit_prompt_open = False
+        self.exit_prompt_options = ("Salvar e Sair", "Sair sem Salvar", "Cancelar")
+        self.exit_prompt_index = 0
         self.society_panel_collapsed = False
         self.society_scroll = 0.0
+        self.society_selected_survivor_name: str | None = None
         self.chat_messages: list[dict[str, object]] = []
         self.chat_scroll = 0.0
         self.dialog_survivor_name: str | None = None
@@ -108,7 +112,7 @@ class Game(WorldMixin, RenderMixin):
         self.meals = 1
         self.medicine = 0
         self.camp_level = 0
-        self.max_camp_level = 2
+        self.max_camp_level = 5
         self.bonfire_heat = 58.0
         self.bonfire_ember_bed = 46.0
         self.event_message = "O campo desperta no meio da mata."
@@ -133,6 +137,8 @@ class Game(WorldMixin, RenderMixin):
         self.build_menu_open = False
         self.selected_build_slot = 1
         self.next_building_uid = 1
+        self.build_requests: list[BuildingRequest] = []
+        self.next_build_request_uid = 1
         self.player_sleeping = False
         self.player_sleep_slot: dict[str, object] | None = None
         self.player_sleep_elapsed = 0.0
@@ -222,6 +228,74 @@ class Game(WorldMixin, RenderMixin):
         self.__init__(seed=self.seed, smoke_test=self.smoke_test)
         self.runtime_settings.update(settings_snapshot)
         self.audio.apply_settings(self.runtime_settings)
+
+    def open_exit_prompt(self) -> None:
+        self.exit_prompt_open = True
+        self.exit_prompt_index = 0
+        self.build_menu_open = False
+        self.close_survivor_dialog()
+        self.audio.play_ui("back")
+
+    def close_exit_prompt(self) -> None:
+        if not self.exit_prompt_open:
+            return
+        self.exit_prompt_open = False
+        self.audio.play_ui("back")
+
+    def exit_prompt_layout(self) -> dict[str, object]:
+        panel = pygame.Rect(0, 0, 520, 252)
+        panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+        buttons: list[pygame.Rect] = []
+        row_y = panel.y + 132
+        for _ in self.exit_prompt_options:
+            buttons.append(pygame.Rect(panel.x + 26, row_y, panel.width - 52, 38))
+            row_y += 48
+        return {"panel": panel, "buttons": buttons}
+
+    def confirm_exit_prompt(self, choice: str | None = None) -> None:
+        selected = choice or self.exit_prompt_options[self.exit_prompt_index]
+        if selected == "Salvar e Sair":
+            success, message = self.save_game()
+            self.set_event_message(message, duration=4.8)
+            self.spawn_floating_text("save" if success else "falhou", self.player.pos, PALETTE["accent_soft"] if success else PALETTE["danger_soft"])
+            if success:
+                self.audio.play_ui("focus")
+                self.running = False
+            else:
+                self.audio.play_alert()
+            return
+        if selected == "Sair sem Salvar":
+            self.running = False
+            return
+        self.close_exit_prompt()
+
+    def handle_exit_prompt_input(self) -> bool:
+        if not self.exit_prompt_open:
+            return False
+        layout = self.exit_prompt_layout()
+        mouse_pos = self.input_state.mouse_screen
+        clicked = self.input_state.attack_pressed
+        hovered = next((index for index, rect in enumerate(layout["buttons"]) if rect.collidepoint(mouse_pos)), None)
+        if hovered is not None and hovered != self.exit_prompt_index:
+            self.exit_prompt_index = hovered
+        if self.input_state.menu_up:
+            self.exit_prompt_index = (self.exit_prompt_index - 1) % len(self.exit_prompt_options)
+            self.audio.play_ui("focus")
+            return True
+        if self.input_state.menu_down:
+            self.exit_prompt_index = (self.exit_prompt_index + 1) % len(self.exit_prompt_options)
+            self.audio.play_ui("focus")
+            return True
+        if self.input_state.cancel_pressed:
+            self.close_exit_prompt()
+            return True
+        if clicked and hovered is not None:
+            self.confirm_exit_prompt(self.exit_prompt_options[hovered])
+            return True
+        if self.input_state.confirm_pressed or self.input_state.interact_pressed:
+            self.confirm_exit_prompt()
+            return True
+        return True
 
     def refresh_title_actions(self) -> None:
         actions = ["Novo Jogo", "Configuracoes", "Sair"]
@@ -407,6 +481,7 @@ class Game(WorldMixin, RenderMixin):
             "day_spawn_timer": self.day_spawn_timer,
             "next_recruit_index": self.next_recruit_index,
             "next_building_uid": self.next_building_uid,
+            "next_build_request_uid": self.next_build_request_uid,
             "player_sleeping": self.player_sleeping,
             "player_sleep_slot": sleep_slot,
             "player_sleep_elapsed": self.player_sleep_elapsed,
@@ -478,6 +553,20 @@ class Game(WorldMixin, RenderMixin):
                 }
                 for building in self.buildings
             ],
+            "build_requests": [
+                {
+                    "uid": request.uid,
+                    "requester_name": request.requester_name,
+                    "kind": request.kind,
+                    "label": request.label,
+                    "pos": self.vec_to_list(request.pos),
+                    "size": request.size,
+                    "approved": request.approved,
+                    "progress": request.progress,
+                    "assigned_to": request.assigned_to,
+                }
+                for request in self.build_requests
+            ],
             "barricades": [
                 {
                     "angle": barricade.angle,
@@ -485,6 +574,7 @@ class Game(WorldMixin, RenderMixin):
                     "tangent": self.vec_to_list(barricade.tangent),
                     "span": barricade.span,
                     "tier": barricade.tier,
+                    "spike_level": getattr(barricade, "spike_level", 0),
                     "max_health": barricade.max_health,
                     "health": barricade.health,
                 }
@@ -525,6 +615,7 @@ class Game(WorldMixin, RenderMixin):
                     "expedition_attack_cooldown": survivor.expedition_attack_cooldown,
                     "leader_directive": survivor.leader_directive,
                     "leader_directive_timer": survivor.leader_directive_timer,
+                    "build_request_cooldown": survivor.build_request_cooldown,
                 }
                 for survivor in self.survivors
             ],
@@ -637,6 +728,7 @@ class Game(WorldMixin, RenderMixin):
         self.day_spawn_timer = float(data.get("day_spawn_timer", self.day_spawn_timer))
         self.next_recruit_index = int(data.get("next_recruit_index", self.next_recruit_index))
         self.next_building_uid = int(data.get("next_building_uid", self.next_building_uid))
+        self.next_build_request_uid = int(data.get("next_build_request_uid", self.next_build_request_uid))
         self.player_sleeping = bool(data.get("player_sleeping", False))
         slot_data = data.get("player_sleep_slot")
         self.player_sleep_slot = dict(slot_data) if isinstance(slot_data, dict) else None
@@ -735,6 +827,20 @@ class Game(WorldMixin, RenderMixin):
             )
             for building in list(data.get("buildings", []))
         ]
+        self.build_requests = [
+            BuildingRequest(
+                uid=int(request.get("uid", 0)),
+                requester_name=str(request.get("requester_name", "")),
+                kind=str(request.get("kind", "barraca")),
+                label=str(request.get("label", "Obra")),
+                pos=self.list_to_vec(request.get("pos"), Vector2()),
+                size=float(request.get("size", 30.0)),
+                approved=bool(request.get("approved", False)),
+                progress=float(request.get("progress", 0.0)),
+                assigned_to=request.get("assigned_to"),
+            )
+            for request in list(data.get("build_requests", []))
+        ]
         self.barricades = [
             Barricade(
                 angle=float(barricade.get("angle", 0.0)),
@@ -742,6 +848,7 @@ class Game(WorldMixin, RenderMixin):
                 tangent=self.list_to_vec(barricade.get("tangent"), Vector2(1, 0)),
                 span=float(barricade.get("span", 74.0)),
                 tier=int(barricade.get("tier", 1)),
+                spike_level=int(barricade.get("spike_level", 0)),
                 max_health=float(barricade.get("max_health", 100.0)),
                 health=float(barricade.get("health", 100.0)),
             )
@@ -784,6 +891,7 @@ class Game(WorldMixin, RenderMixin):
             survivor.expedition_attack_cooldown = float(saved.get("expedition_attack_cooldown", 0.0))
             survivor.leader_directive = saved.get("leader_directive")
             survivor.leader_directive_timer = float(saved.get("leader_directive_timer", 0.0))
+            survivor.build_request_cooldown = float(saved.get("build_request_cooldown", survivor.build_request_cooldown))
             survivor.state = "expedition" if survivor.on_expedition else "idle"
             survivor.state_label = "em expedicao" if survivor.on_expedition else "reorganizando"
             self.survivors.append(survivor)
@@ -856,6 +964,7 @@ class Game(WorldMixin, RenderMixin):
         if SAVE_FOG_FILE.exists():
             self.fog_of_war = pygame.image.load(str(SAVE_FOG_FILE)).convert_alpha()
         self.refresh_barricade_strength()
+        self.prune_build_requests()
         self.assign_building_specialists()
         self.refresh_title_actions()
         if not self.chat_messages:
@@ -897,8 +1006,11 @@ class Game(WorldMixin, RenderMixin):
     def society_panel_layout(self) -> dict[str, pygame.Rect]:
         return ui_helpers.society_panel_layout(self)
 
-    def society_card_step(self) -> int:
-        return ui_helpers.society_card_step(self)
+    def society_card_step(self, survivor: object | None = None) -> int:
+        return ui_helpers.society_card_step(self, survivor)
+
+    def society_card_height(self, survivor: object) -> int:
+        return ui_helpers.society_card_height(self, survivor)
 
     def society_content_height(self) -> int:
         return ui_helpers.society_content_height(self)
@@ -1065,7 +1177,13 @@ class Game(WorldMixin, RenderMixin):
         self.input_state = self.input.poll()
 
         if self.input_state.quit_requested:
-            self.running = False
+            if self.scenes.is_gameplay():
+                self.open_exit_prompt()
+            else:
+                self.running = False
+            return
+
+        if self.handle_exit_prompt_input():
             return
 
         if self.input_state.cancel_pressed:
@@ -1081,8 +1199,7 @@ class Game(WorldMixin, RenderMixin):
                 self.skip_tips_to_gameplay()
                 return
             if self.scenes.is_gameplay():
-                self.scenes.change(SceneId.TITLE)
-                self.audio.play_ui("back")
+                self.open_exit_prompt()
             else:
                 self.running = False
             return
@@ -1186,6 +1303,9 @@ class Game(WorldMixin, RenderMixin):
             self.update_background_simulation(dt)
             return
 
+        if self.exit_prompt_open and self.scenes.is_gameplay():
+            return
+
         if not self.scenes.allows_world_update:
             self.camera.center_on(CAMP_CENTER)
             return
@@ -1211,6 +1331,7 @@ class Game(WorldMixin, RenderMixin):
         self.update_player_biome()
         self.ensure_zone_boss_near_player()
         self.reveal_world_around_player()
+        self.prune_build_requests()
         self.assign_building_specialists()
         self.update_dynamic_events(sim_dt)
         self.update_survivor_barks(sim_dt)
@@ -1245,19 +1366,19 @@ class Game(WorldMixin, RenderMixin):
             self.spawn_timer -= sim_dt
             if self.spawn_budget > 0 and self.spawn_timer <= 0:
                 self.spawn_night_zombie()
-                self.spawn_timer = max(0.62 if self.horde_active else 0.85, (2.2 if self.horde_active else 2.8) - self.day * 0.08)
+                self.spawn_timer = max(0.95 if self.horde_active else 1.2, (2.7 if self.horde_active else 3.5) - self.day * 0.06)
         else:
             self.day_spawn_timer -= sim_dt
             if (
                 self.day_spawn_timer <= 0
                 and self.player.pos.distance_to(CAMP_CENTER) > self.camp_clearance_radius() + 220
-                and len(self.zombies) < 18
-                and self.random.random() < 0.68
+                and len(self.zombies) < 12
+                and self.random.random() < 0.42
             ):
                 self.spawn_forest_ambient_zombie()
-                self.day_spawn_timer = self.random.uniform(9.0, 18.0)
+                self.day_spawn_timer = self.random.uniform(14.0, 24.0)
             elif self.day_spawn_timer <= 0:
-                self.day_spawn_timer = self.random.uniform(8.0, 14.0)
+                self.day_spawn_timer = self.random.uniform(12.0, 18.0)
 
         if self.player_sleeping:
             self.player_sleep_elapsed += sim_dt

@@ -23,6 +23,7 @@ from .config import (
 from .models import (
     Barricade,
     Building,
+    BuildingRequest,
     DamagePulse,
     DynamicEvent,
     Ember,
@@ -479,7 +480,7 @@ class WorldMixin:
         ]
 
     def layout_camp_core(self) -> None:
-        self.camp_half_size = 214 + self.camp_level * 76
+        self.camp_half_size = 214 + self.camp_level * 88
         self.stockpile_pos = CAMP_CENTER + Vector2(-self.camp_half_size * 0.1, self.camp_half_size * 0.48)
         self.bonfire_pos = Vector2(CAMP_CENTER)
         self.kitchen_pos = CAMP_CENTER + Vector2(self.camp_half_size * 0.46, self.camp_half_size * 0.16)
@@ -664,6 +665,9 @@ class WorldMixin:
     def building_count(self, kind: str) -> int:
         return sum(1 for building in self.buildings if building.kind == kind)
 
+    def requested_building_count(self, kind: str) -> int:
+        return sum(1 for request in self.build_requests if request.kind == kind)
+
     def build_specialty_role(self, kind: str) -> str | None:
         return {
             "torre": "vigia",
@@ -673,6 +677,172 @@ class WorldMixin:
             "cozinha": "cozinheiro",
             "enfermaria": "mensageiro",
         }.get(kind)
+
+    def build_request_by_uid(self, uid: int | None) -> BuildingRequest | None:
+        if uid is None:
+            return None
+        for request in self.build_requests:
+            if request.uid == uid:
+                return request
+        return None
+
+    def active_build_requests(self) -> list[BuildingRequest]:
+        return list(self.build_requests)
+
+    def prune_build_requests(self) -> None:
+        """Limpa pedidos que perderam o morador responsavel ou o espaco reservado."""
+        valid_names = {survivor.name for survivor in self.survivors if survivor.is_alive()}
+        kept: list[BuildingRequest] = []
+        for request in self.build_requests:
+            if request.requester_name not in valid_names:
+                continue
+            kept.append(request)
+        self.build_requests = kept
+
+    def pending_build_request_for_survivor(self, survivor: Survivor) -> BuildingRequest | None:
+        for request in self.build_requests:
+            if request.requester_name == survivor.name:
+                return request
+        return None
+
+    def requested_building_total(self, kind: str) -> int:
+        return self.building_count(kind) + self.requested_building_count(kind)
+
+    def desired_survivor_build_kind(self, survivor: Survivor) -> str | None:
+        """Escolhe a obra que o morador quer ver no acampamento antes de pedir ao chefe."""
+        if self.pending_build_request_for_survivor(survivor):
+            return None
+        if self.active_dynamic_events or self.player_sleeping or self.is_night:
+            return None
+        if survivor.energy < 34 or survivor.health < 46 or survivor.exhaustion > 62:
+            return None
+
+        if self.spare_beds() <= 0 and self.requested_building_total("barraca") < max(1, 1 + self.camp_level):
+            return "barraca"
+        if survivor.role == "lenhador" and self.requested_building_total("serraria") < 1:
+            return "serraria"
+        if survivor.role == "cozinheiro" and self.requested_building_total("cozinha") < 1:
+            return "cozinha"
+        if survivor.role == "mensageiro" and self.requested_building_total("enfermaria") < 1:
+            return "enfermaria"
+        if survivor.role == "cozinheiro" and self.food < 10 and self.requested_building_total("horta") < max(1, self.camp_level):
+            return "horta"
+        if survivor.role == "artesa" and self.weakest_barricade_health() < 86 and self.requested_building_total("anexo") < max(1, self.camp_level):
+            return "anexo"
+        desired_towers = 1 + (1 if self.camp_level >= 2 else 0) + (1 if len(self.survivors) >= 8 else 0)
+        if survivor.role == "vigia" and self.requested_building_total("torre") < desired_towers:
+            return "torre"
+        if self.economy_phase_key() != "early" and self.food < 8 and self.requested_building_total("horta") < max(1, self.camp_level):
+            return "horta"
+        return None
+
+    def find_build_request_site(self, kind: str, survivor: Survivor | None = None) -> Vector2 | None:
+        """Reserva um ponto valido dentro da base para a futura obra do morador."""
+        rect = self.camp_rect(-48)
+        origin = Vector2(survivor.pos) if survivor is not None else Vector2(CAMP_CENTER)
+        candidates: list[tuple[float, Vector2]] = []
+        for grid_y in range(int(rect.top), int(rect.bottom) + 1, 32):
+            for grid_x in range(int(rect.left), int(rect.right) + 1, 32):
+                candidate = self.building_center_snapped(Vector2(grid_x, grid_y))
+                if not self.is_valid_build_position(kind, candidate):
+                    continue
+                score = candidate.distance_to(origin)
+                score += candidate.distance_to(self.workshop_pos) * 0.18
+                if kind == "torre":
+                    score -= candidate.distance_to(CAMP_CENTER) * 0.32
+                elif kind == "horta":
+                    score += candidate.distance_to(self.kitchen_pos) * 0.08
+                elif kind == "serraria":
+                    score += candidate.distance_to(self.stockpile_pos) * 0.04
+                elif kind == "enfermaria":
+                    score += candidate.distance_to(self.kitchen_pos) * 0.06
+                candidates.append((score, candidate))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return Vector2(candidates[0][1])
+
+    def propose_survivor_build_request(self, survivor: Survivor) -> BuildingRequest | None:
+        """Transforma a necessidade do morador em um pedido claro para o chefe aprovar."""
+        kind = self.desired_survivor_build_kind(survivor)
+        if not kind:
+            return None
+        site = self.find_build_request_site(kind, survivor)
+        if site is None:
+            survivor.build_request_cooldown = self.random.uniform(26.0, 44.0)
+            return None
+        recipe = self.build_recipe_for(kind)
+        request = BuildingRequest(
+            uid=self.next_build_request_uid,
+            requester_name=survivor.name,
+            kind=kind,
+            label=str(recipe["label"]),
+            pos=site,
+            size=float(recipe["size"]),
+        )
+        self.next_build_request_uid += 1
+        self.build_requests.append(request)
+        survivor.build_request_cooldown = self.random.uniform(64.0, 92.0)
+        wood_cost, scrap_cost = self.build_cost_for(kind)
+        self.trigger_survivor_bark(survivor, f"Chefe, precisamos de {str(recipe['label']).lower()}.", PALETTE["accent_soft"], duration=3.0)
+        self.add_chat_message(
+            survivor.name,
+            f"pediu {str(recipe['label']).lower()}. Custo: {wood_cost} tabuas e {scrap_cost} sucata.",
+            PALETTE["accent_soft"],
+            source="npc",
+        )
+        self.set_event_message(f"{survivor.name} quer erguer {str(recipe['label']).lower()}. Chegue perto e aprove se fizer sentido.", duration=6.0)
+        return request
+
+    def approve_build_request(self, request: BuildingRequest) -> tuple[bool, str]:
+        """Confirma o pedido do morador e libera os recursos da obra."""
+        if request not in self.build_requests:
+            return False, "Esse pedido nao existe mais."
+        if request.approved:
+            return False, "Essa obra ja foi aprovada."
+        self.build_requests.remove(request)
+        if not self.is_valid_build_position(request.kind, request.pos):
+            return False, "O ponto reservado foi perdido. O morador precisa planejar de novo."
+        self.build_requests.append(request)
+        wood_cost, scrap_cost = self.build_cost_for(request.kind)
+        if self.wood < wood_cost or self.scrap < scrap_cost:
+            return False, f"Faltam {wood_cost} tabuas e {scrap_cost} sucata para liberar essa obra."
+        self.wood -= wood_cost
+        self.scrap -= scrap_cost
+        request.approved = True
+        request.assigned_to = request.requester_name
+        requester = next((survivor for survivor in self.survivors if survivor.name == request.requester_name and survivor.is_alive()), None)
+        if requester:
+            requester.decision_timer = 0.0
+            requester.morale = clamp(requester.morale + 4.0, 0, 100)
+            self.adjust_trust(requester, 2.4)
+            self.trigger_survivor_bark(requester, "Boa. Eu mesmo levanto isso.", PALETTE["heal"], duration=2.8)
+        self.add_chat_message("radio", f"Obra aprovada: {request.label.lower()} vai sair do papel.", PALETTE["heal"], source="system")
+        self.set_event_message(f"Voce aprovou {request.label.lower()}. Agora a equipe vai levantar a estrutura.", duration=5.2)
+        return True, f"{request.label} aprovada."
+
+    def complete_build_request(self, request: BuildingRequest) -> Building | None:
+        """Transforma a obra aprovada em um predio pronto quando o trabalho acaba."""
+        if request not in self.build_requests:
+            return None
+        self.build_requests.remove(request)
+        if not self.is_valid_build_position(request.kind, request.pos):
+            self.set_event_message(f"A obra de {request.label.lower()} perdeu espaco e foi cancelada.", duration=4.8)
+            return None
+        building = Building(
+            uid=self.next_building_uid,
+            kind=request.kind,
+            pos=Vector2(request.pos),
+            size=request.size,
+        )
+        self.next_building_uid += 1
+        self.buildings.append(building)
+        self.refresh_barricade_strength()
+        self.assign_building_specialists()
+        self.spawn_floating_text(request.label.lower(), request.pos, PALETTE["accent_soft"])
+        self.emit_embers(request.pos, 6, smoky=True)
+        self.set_event_message(f"{request.label} pronta na clareira.", duration=4.8)
+        return building
 
     def camp_sleep_slots(self) -> list[dict[str, object]]:
         slots: list[dict[str, object]] = []
@@ -766,6 +936,11 @@ class WorldMixin:
         for barricade in self.barricades:
             if barricade.health < barricade.max_health and self.wood >= 1 and player.distance_to(barricade.pos) < 92:
                 return barricade.pos, "E reforcar barricada"
+            if player.distance_to(barricade.pos) < 92:
+                if getattr(barricade, "spike_level", 0) >= 3:
+                    return barricade.pos, "Spikes no maximo"
+                wood_cost, scrap_cost = self.barricade_upgrade_cost(barricade)
+                return barricade.pos, f"E melhorar spikes ({wood_cost} tabuas, {scrap_cost} sucata)"
 
         if player.distance_to(self.workshop_pos) < 108:
             if self.can_expand_camp():
@@ -834,7 +1009,7 @@ class WorldMixin:
         return None
 
     def building_center_snapped(self, pos: Vector2) -> Vector2:
-        rect = self.camp_rect(-44)
+        rect = self.camp_rect(-36)
         grid = 32
         snapped_x = round((pos.x - CAMP_CENTER.x) / grid) * grid + CAMP_CENTER.x
         snapped_y = round((pos.y - CAMP_CENTER.y) / grid) * grid + CAMP_CENTER.y
@@ -849,7 +1024,7 @@ class WorldMixin:
 
     def is_valid_build_position(self, kind: str, pos: Vector2) -> bool:
         size = self.placement_size_for(kind)
-        if not self.point_in_camp_square(pos, padding=-(size + 34)):
+        if not self.point_in_camp_square(pos, padding=-(size + 24)):
             return False
         core_positions = [
             self.bonfire_pos,
@@ -858,13 +1033,18 @@ class WorldMixin:
             self.workshop_pos,
             self.radio_pos,
         ]
-        if any(pos.distance_to(core) < size + 56 for core in core_positions):
+        if any(pos.distance_to(core) < size + 44 for core in core_positions):
             return False
-        if any(pos.distance_to(Vector2(tent["pos"])) < size + 34 for tent in self.tents):
+        if any(pos.distance_to(Vector2(tent["pos"])) < size + 28 for tent in self.tents):
             return False
-        if any(pos.distance_to(building.pos) < size + building.size + 18 for building in self.buildings):
+        if any(pos.distance_to(building.pos) < size + building.size + 12 for building in self.buildings):
             return False
-        if any(pos.distance_to(barricade.pos) < size + 44 for barricade in self.barricades):
+        if any(
+            request.approved and pos.distance_to(request.pos) < size + request.size + 12
+            for request in self.build_requests
+        ):
+            return False
+        if any(pos.distance_to(barricade.pos) < size + 32 for barricade in self.barricades):
             return False
         return True
 
@@ -902,9 +1082,45 @@ class WorldMixin:
         bonus_tier = self.building_count("anexo")
         for barricade in self.barricades:
             ratio = 1.0 if barricade.max_health <= 0 else barricade.health / barricade.max_health
-            barricade.max_health = 110 + (1 + self.camp_level) * 28 + bonus_health
+            spike_health = getattr(barricade, "spike_level", 0) * 18
+            barricade.max_health = 110 + (1 + self.camp_level) * 28 + bonus_health + spike_health
             barricade.tier = 1 + self.camp_level + bonus_tier
             barricade.health = clamp(barricade.max_health * ratio, 0.0, barricade.max_health)
+
+    def barricade_upgrade_cost(self, barricade: Barricade) -> tuple[int, int]:
+        level = getattr(barricade, "spike_level", 0)
+        wood_cost = 2 + level * 2
+        scrap_cost = 1 + level
+        return wood_cost, scrap_cost
+
+    def can_upgrade_barricade(self, barricade: Barricade) -> bool:
+        if getattr(barricade, "spike_level", 0) >= 3:
+            return False
+        wood_cost, scrap_cost = self.barricade_upgrade_cost(barricade)
+        return self.wood >= wood_cost and self.scrap >= scrap_cost
+
+    def upgrade_barricade(self, barricade: Barricade) -> bool:
+        if getattr(barricade, "spike_level", 0) >= 3:
+            self.spawn_floating_text("spikes no limite", barricade.pos, PALETTE["muted"])
+            return False
+        wood_cost, scrap_cost = self.barricade_upgrade_cost(barricade)
+        if self.wood < wood_cost or self.scrap < scrap_cost:
+            self.spawn_floating_text(
+                f"precisa {wood_cost} tabuas e {scrap_cost} sucata",
+                barricade.pos,
+                PALETTE["muted"],
+            )
+            return False
+        ratio = 1.0 if barricade.max_health <= 0 else barricade.health / barricade.max_health
+        self.wood -= wood_cost
+        self.scrap -= scrap_cost
+        barricade.spike_level = getattr(barricade, "spike_level", 0) + 1
+        self.refresh_barricade_strength()
+        barricade.health = clamp(max(barricade.health, barricade.max_health * ratio + 12), 0.0, barricade.max_health)
+        self.spawn_floating_text(f"spikes nv {barricade.spike_level}", barricade.pos, PALETTE["accent_soft"])
+        self.set_event_message("As defesas ganharam spikes mais agressivos.", duration=4.6)
+        self.impact_burst(barricade.pos, PALETTE["accent_soft"], radius=13, shake=0.7, ember_count=3, smoky=True)
+        return True
 
     def workbench_repair_amount(self) -> float:
         phase_bonus = {
@@ -2060,8 +2276,8 @@ class WorldMixin:
         anchor = Vector2(region["anchor"])
         if self.player.pos.distance_to(anchor) > 430:
             return
-        angle = self.hash_noise(int(anchor.x // 10), int(anchor.y // 10), 157) * math.tau
-        spawn_pos = anchor + angle_to_vector(angle) * (96 + self.hash_noise(int(anchor.x // 13), int(anchor.y // 13), 163) * 54)
+        spawn_radius = 96 + self.hash_noise(int(anchor.x // 13), int(anchor.y // 13), 163) * 54
+        spawn_pos = self.safe_zombie_spawn_position(anchor, spawn_radius, spawn_radius + 42)
         boss = Zombie(spawn_pos, self.day, boss_profile=dict(region["boss_blueprint"]))
         self.zombies.append(boss)
         region["boss_spawned"] = True
@@ -2706,26 +2922,46 @@ class WorldMixin:
 
     def spawn_local_zombies(self, center: Vector2, count: int, *, pressure: bool = False) -> None:
         for _ in range(count):
-            angle = self.random.uniform(0, math.tau)
-            distance = self.random.uniform(130, 220)
-            pos = center + angle_to_vector(angle) * distance
+            pos = self.safe_zombie_spawn_position(center, 130, 220)
             zombie = Zombie(pos, self.day)
             zombie.anchor = Vector2(center)
             zombie.camp_pressure = clamp((0.78 if pressure else 0.52) + center.distance_to(CAMP_CENTER) / 950, 0.25, 1.0)
             self.zombies.append(zombie)
 
     def spawn_forest_ambient_zombie(self, *, anchor: Vector2 | None = None, radius: float | None = None) -> None:
-        angle = self.random.uniform(0, math.tau)
         center = Vector2(anchor) if anchor is not None else Vector2(self.player.pos)
         if radius is None:
-            distance = self.random.uniform(260, 520)
+            min_distance = 260.0
+            max_distance = 520.0
         else:
-            distance = self.random.uniform(max(42.0, radius * 0.45), max(68.0, radius))
-        pos = center + angle_to_vector(angle) * distance
+            min_distance = max(42.0, radius * 0.45)
+            max_distance = max(68.0, radius)
+        pos = self.safe_zombie_spawn_position(center, min_distance, max_distance)
         zombie = Zombie(pos, self.day)
         zombie.anchor = Vector2(center)
         zombie.camp_pressure = clamp(pos.distance_to(CAMP_CENTER) / 900, 0.18, 0.72)
         self.zombies.append(zombie)
+
+    def safe_zombie_spawn_position(self, center: Vector2, min_distance: float, max_distance: float) -> Vector2:
+        """Escolhe um ponto de spawn fora da zona segura do acampamento."""
+        safe_radius = self.camp_clearance_radius() + 120
+        for _ in range(48):
+            angle = self.random.uniform(0, math.tau)
+            distance = self.random.uniform(min_distance, max_distance)
+            pos = Vector2(center) + angle_to_vector(angle) * distance
+            if pos.distance_to(CAMP_CENTER) < safe_radius:
+                continue
+            if self.point_in_camp_square(pos, padding=96):
+                continue
+            if pos.distance_to(self.player.pos) < 120:
+                continue
+            return pos
+        fallback = Vector2(center) - Vector2(CAMP_CENTER)
+        if fallback.length_squared() <= 0.01:
+            fallback = angle_to_vector(self.random.uniform(0, math.tau))
+        else:
+            fallback = fallback.normalize()
+        return Vector2(CAMP_CENTER) + fallback * max(safe_radius + 36, min_distance)
 
     def update_player_biome(self) -> None:
         region = self.current_named_region()
@@ -2893,6 +3129,20 @@ class WorldMixin:
                 Vector2(0.3, 0.3),
                 Vector2(-0.24, 0.24),
             ]
+            edge_columns = (-0.72, -0.36, 0.0, 0.36, 0.72)
+            for ring in (0.82, 0.58):
+                for column in edge_columns:
+                    offsets.append(Vector2(column, -ring))
+                    offsets.append(Vector2(column, ring))
+                for row in (-0.42, 0.0, 0.42):
+                    offsets.append(Vector2(-ring, row))
+                    offsets.append(Vector2(ring, row))
+            deduped: list[Vector2] = []
+            for offset in offsets:
+                if any(existing.distance_to(offset) < 0.08 for existing in deduped):
+                    continue
+                deduped.append(offset)
+            offsets = deduped
         tent_count = 8 + self.camp_level * 4
         tents = []
         protected_sites = [
@@ -2905,6 +3155,11 @@ class WorldMixin:
         core_clearance = 92 if self.camp_level == 0 else 72
         tent_spacing = 64 if self.camp_level == 0 else 56
         inset = self.camp_half_size - 34
+        if len(offsets) < tent_count:
+            for extra_index in range(tent_count - len(offsets)):
+                angle = (extra_index / max(1, tent_count - len(offsets))) * math.tau
+                offsets.append(Vector2(math.cos(angle) * 0.84, math.sin(angle) * 0.84))
+
         for offset in offsets[:tent_count]:
             pos = CAMP_CENTER + Vector2(offset.x * self.camp_half_size, offset.y * self.camp_half_size)
             for anchor in protected_sites:
@@ -3272,6 +3527,84 @@ class WorldMixin:
     def living_survivors(self) -> list[Survivor]:
         return [survivor for survivor in self.survivors if survivor.is_alive() and not self.is_survivor_on_expedition(survivor)]
 
+    def camp_invader_zombies(self) -> list[Zombie]:
+        """Lista mortos que ja pressionam a linha da base ou passaram da cerca."""
+        invaders: list[Zombie] = []
+        safe_radius = self.camp_clearance_radius() + 84
+        for zombie in self.zombies:
+            if not zombie.is_alive():
+                continue
+            if self.point_in_camp_square(zombie.pos, padding=54) or zombie.pos.distance_to(CAMP_CENTER) < safe_radius:
+                invaders.append(zombie)
+        return invaders
+
+    def closest_defense_target(self, survivor: Survivor) -> Zombie | None:
+        """Escolhe um alvo comum para a defesa, priorizando invasores da base."""
+        invaders = self.camp_invader_zombies()
+        if invaders:
+            return min(
+                invaders,
+                key=lambda zombie: (
+                    zombie.pos.distance_to(CAMP_CENTER),
+                    zombie.pos.distance_to(self.player.pos),
+                    zombie.pos.distance_to(survivor.pos),
+                ),
+            )
+        nearby = [zombie for zombie in self.zombies if zombie.is_alive() and zombie.pos.distance_to(survivor.pos) < 128]
+        if nearby:
+            return min(nearby, key=lambda zombie: zombie.pos.distance_to(survivor.pos))
+        if self.is_night:
+            perimeter = [
+                zombie
+                for zombie in self.zombies
+                if zombie.is_alive() and zombie.pos.distance_to(CAMP_CENTER) < self.camp_clearance_radius() + 180
+            ]
+            if perimeter:
+                return min(perimeter, key=lambda zombie: zombie.pos.distance_to(survivor.pos))
+        return None
+
+    def survivor_should_seek_shelter(self, survivor: Survivor, zombie: Zombie) -> bool:
+        """Define quando um morador deve recuar em vez de comprar briga."""
+        if survivor.health < 38 or survivor.energy < 18:
+            return True
+        if survivor.state in {"sleep", "rest", "treatment"} and zombie.pos.distance_to(survivor.pos) < 140:
+            return True
+        if survivor.role in {"cozinheiro", "mensageiro"} and zombie.pos.distance_to(survivor.pos) < 170:
+            return True
+        if survivor.exhaustion > 84 or survivor.insanity > 88:
+            return True
+        return False
+
+    def survivor_should_engage(self, survivor: Survivor, zombie: Zombie) -> bool:
+        """Decide quem entra no combate e quem so segura a linha quando a base e invadida."""
+        base_invaded = self.point_in_camp_square(zombie.pos, padding=54) or zombie.pos.distance_to(CAMP_CENTER) < self.camp_clearance_radius() + 92
+        if survivor.role == "vigia":
+            return survivor.energy > 18 and survivor.health > 28
+        if survivor.has_trait("corajoso"):
+            return survivor.energy > 24 and survivor.health > 34
+        if survivor.has_trait("leal") and base_invaded:
+            return survivor.energy > 24 and survivor.health > 34
+        if survivor.role in {"lenhador", "artesa", "batedora"} and base_invaded:
+            return survivor.energy > 30 and survivor.health > 48
+        return zombie.pos.distance_to(survivor.pos) < 64 and survivor.health > 52 and survivor.energy > 32
+
+    def survivor_attack_damage(self, survivor: Survivor) -> float:
+        """Escala simples de dano para o combate automatico dos moradores."""
+        damage = 14.0
+        if survivor.role == "vigia":
+            damage += 6.0
+        elif survivor.role in {"lenhador", "artesa"}:
+            damage += 3.0
+        elif survivor.role == "batedora":
+            damage += 2.0
+        if survivor.has_trait("corajoso"):
+            damage += 3.0
+        if survivor.has_trait("teimoso"):
+            damage += 1.0
+        if survivor.has_trait("gentil"):
+            damage -= 1.0
+        return damage
+
     def spawn_floating_text(
         self,
         text: str,
@@ -3345,9 +3678,9 @@ class WorldMixin:
         }
 
     def begin_night(self) -> None:
-        self.horde_active = self.random.random() < min(0.18 + self.day * 0.035, 0.58)
-        self.spawn_budget = 7 + self.day * 3 + (6 if self.horde_active else 0)
-        self.spawn_timer = 1.2
+        self.horde_active = self.random.random() < min(0.1 + self.day * 0.025, 0.42)
+        self.spawn_budget = 4 + self.day * 2 + (4 if self.horde_active else 0)
+        self.spawn_timer = 1.8
         self.bonfire_ember_bed = clamp(self.bonfire_ember_bed + 8, 0, 100)
         self.emit_embers(self.bonfire_pos, 20)
         self.spawn_floating_text("a floresta acordou", self.bonfire_pos, PALETTE["danger_soft"])
@@ -3404,12 +3737,14 @@ class WorldMixin:
         spawn_center = CAMP_CENTER
         if self.player.pos.distance_to(CAMP_CENTER) > self.camp_clearance_radius() + 320:
             spawn_center = Vector2(self.player.pos)
-        angle = self.random.uniform(0, math.tau)
         if spawn_center == CAMP_CENTER:
-            distance = self.random.uniform(self.camp_clearance_radius() + 480, self.camp_clearance_radius() + 690)
+            pos = self.safe_zombie_spawn_position(
+                spawn_center,
+                self.camp_clearance_radius() + 480,
+                self.camp_clearance_radius() + 690,
+            )
         else:
-            distance = self.random.uniform(240, 420)
-        pos = spawn_center + angle_to_vector(angle) * distance
+            pos = self.safe_zombie_spawn_position(spawn_center, 240, 420)
         zombie = Zombie(pos, self.day)
         zombie.anchor = Vector2(spawn_center)
         zombie.camp_pressure = 0.92 if spawn_center == CAMP_CENTER or self.horde_active else 0.6

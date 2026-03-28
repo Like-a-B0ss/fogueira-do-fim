@@ -46,6 +46,7 @@ class Barricade:
     tangent: Vector2
     span: float = 74.0
     tier: int = 1
+    spike_level: int = 0
     max_health: float = 100.0
     health: float = 100.0
 
@@ -136,6 +137,19 @@ class Building:
     size: float
     assigned_to: str | None = None
     work_phase: float = 0.0
+
+
+@dataclass
+class BuildingRequest:
+    uid: int
+    requester_name: str
+    kind: str
+    label: str
+    pos: Vector2
+    size: float
+    approved: bool = False
+    progress: float = 0.0
+    assigned_to: str | None = None
 
 
 @dataclass

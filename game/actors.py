@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pygame import Vector2
 
 from .config import CAMP_CENTER, CAMP_RADIUS, PALETTE, ROLE_COLORS, angle_to_vector, clamp
-from .models import Barricade, Building, DamagePulse, ResourceNode
+from .models import Barricade, Building, BuildingRequest, DamagePulse, ResourceNode
 
 if TYPE_CHECKING:
     from .session import Game
@@ -109,7 +109,7 @@ class Player(Actor):
                 continue
             angle = self.facing.angle_to(offset)
             if abs(angle) <= 58:
-                zombie.health -= 38
+                zombie.health -= 42
                 zombie.stagger = 0.18
                 zombie.pos += offset.normalize() * 18
                 hit_any = True
@@ -253,6 +253,17 @@ class Player(Actor):
         if acted:
             return
 
+        for barricade in game.barricades:
+            distance = self.distance_to(barricade.pos)
+            if distance < best_distance:
+                if game.upgrade_barricade(barricade):
+                    game.audio.play_interact("repair")
+                    return
+                if getattr(barricade, "spike_level", 0) >= 3:
+                    game.spawn_floating_text("spikes no limite", barricade.pos, PALETTE["muted"])
+                    return
+                return
+
         if self.distance_to(game.workshop_pos) < 108:
             if game.expand_camp():
                 game.audio.play_interact("repair")
@@ -389,6 +400,7 @@ class Survivor(Actor):
         self.bark_timer = 0.0
         self.bark_color = PALETTE["text"]
         self.bark_cooldown = random.uniform(2.5, 5.5)
+        self.build_request_cooldown = random.uniform(18.0, 34.0)
 
     def has_trait(self, trait: str) -> bool:
         return trait in self.traits
@@ -416,6 +428,7 @@ class Survivor(Actor):
         self.bark_timer = max(0.0, self.bark_timer - dt)
         self.bark_cooldown = max(0.0, self.bark_cooldown - dt)
         self.leader_directive_timer = max(0.0, self.leader_directive_timer - dt)
+        self.build_request_cooldown = max(0.0, self.build_request_cooldown - dt)
         if self.leader_directive_timer <= 0:
             self.leader_directive = None
 
@@ -478,18 +491,42 @@ class Survivor(Actor):
         elif self.has_trait("leal") and game.player.distance_to(self.pos) < 180:
             self.trust_leader = clamp(self.trust_leader + 0.08 * dt, 0, 100)
 
-        zombie = game.find_closest_zombie(self.pos, 115)
-        if zombie and self.attack_cooldown <= 0:
-            zombie.health -= 16
-            zombie.stagger = 0.1
-            self.attack_cooldown = 0.9
-            self.state_label = "combatendo"
-            game.impact_burst(zombie.pos, PALETTE["accent_soft"], radius=10, shake=0.85, ember_count=1)
-            game.damage_pulses.append(
-                DamagePulse(Vector2(zombie.pos), 10, 0.22, PALETTE["accent_soft"])
-            )
-            game.audio.play_impact("flesh")
-            return
+        defense_target = game.closest_defense_target(self)
+        assigned_building = game.building_by_id(self.assigned_building_id)
+        if defense_target:
+            if game.survivor_should_seek_shelter(self, defense_target):
+                self.state = "shelter"
+                self.state_label = "se abrigando"
+                shelter_anchor = game.bonfire_pos if self.distance_to(game.bonfire_pos) < self.distance_to(self.home_pos) + 26 else self.home_pos
+                self.target_pos = Vector2(shelter_anchor)
+                self.move_toward(Vector2(shelter_anchor), dt, 1.08)
+                return
+            if (
+                assigned_building
+                and self.assigned_building_kind == "torre"
+                and self.name in game.active_guard_names()
+                and defense_target.pos.distance_to(assigned_building.pos) < 260
+            ):
+                if self.state != "watchtower" or self.target_ref is not assigned_building:
+                    self.start_state("watchtower", assigned_building.pos, assigned_building)
+                self.update_state(game, dt)
+                return
+            if game.survivor_should_engage(self, defense_target):
+                self.state = "defend"
+                self.state_label = "segurando a linha"
+                self.target_pos = Vector2(defense_target.pos)
+                if self.distance_to(defense_target.pos) > 74:
+                    self.move_toward(defense_target.pos, dt, 1.04 if self.role == "vigia" else 0.96)
+                elif self.attack_cooldown <= 0:
+                    defense_target.health -= game.survivor_attack_damage(self)
+                    defense_target.stagger = 0.14 if self.role == "vigia" else 0.1
+                    self.attack_cooldown = 0.72 if self.role == "vigia" else 0.92
+                    game.impact_burst(defense_target.pos, PALETTE["accent_soft"], radius=10, shake=0.85, ember_count=1)
+                    game.damage_pulses.append(
+                        DamagePulse(Vector2(defense_target.pos), 10, 0.22, PALETTE["accent_soft"])
+                    )
+                    game.audio.play_impact("flesh")
+                return
 
         crisis = game.dynamic_event_for_survivor(self)
         if crisis and crisis.kind in {"fuga", "desercao"}:
@@ -529,6 +566,13 @@ class Survivor(Actor):
             if infirmary:
                 self.start_state("treatment", infirmary.pos, infirmary)
                 return
+        build_request = game.pending_build_request_for_survivor(self)
+        if build_request and build_request.approved and self.energy > 26 and self.health > 34:
+            self.start_state("build_site", build_request.pos, build_request)
+            return
+        if not build_request and self.build_request_cooldown <= 0:
+            game.propose_survivor_build_request(self)
+            build_request = game.pending_build_request_for_survivor(self)
         assigned_building = game.building_by_id(self.assigned_building_id)
         if assigned_building and self.assigned_building_kind == "horta" and not game.is_night and self.energy > 28:
             self.start_state("garden", assigned_building.pos, assigned_building)
@@ -766,11 +810,13 @@ class Survivor(Actor):
             "workbench": "na oficina",
             "sawmill": "na serraria",
             "clinic": "na enfermaria",
+            "build_site": "levantando construcao",
             "rest": "descansando",
             "sleep": "dormindo",
             "eat": "comendo",
             "treatment": "em tratamento",
             "shelter": "protegido na tenda",
+            "defend": "segurando a linha",
             "deliver": "levando suprimentos",
             "wander": "rondando a base",
         }
@@ -917,6 +963,30 @@ class Survivor(Actor):
                     game.damage_pulses.append(DamagePulse(Vector2(zombie.pos), 12, 0.22, PALETTE["accent_soft"]))
                     game.spawn_floating_text("vigia", tower.pos, PALETTE["energy"])
                     game.audio.play_impact("body")
+            return
+
+        if self.state == "build_site":
+            request = self.target_ref if isinstance(self.target_ref, BuildingRequest) else game.pending_build_request_for_survivor(self)
+            if not request or request not in game.build_requests or not request.approved:
+                self.decision_timer = 0
+                return
+            if self.move_toward(request.pos, dt):
+                speed = 0.3
+                if self.role == "artesa":
+                    speed += 0.08
+                elif self.role == "lenhador":
+                    speed += 0.04
+                if self.has_trait("resiliente"):
+                    speed += 0.03
+                request.progress = clamp(request.progress + dt * speed, 0.0, 1.0)
+                self.energy = clamp(self.energy - 2.2 * dt, 0, 100)
+                self.exhaustion = clamp(self.exhaustion + 1.8 * dt, 0, 100)
+                if request.progress >= 1.0:
+                    if game.complete_build_request(request):
+                        self.morale = clamp(self.morale + 5.0, 0, 100)
+                        game.adjust_trust(self, 1.6)
+                        game.audio.play_interact("repair")
+                    self.decision_timer = 0.5
             return
 
         if self.state == "garden":
@@ -1087,8 +1157,8 @@ class Survivor(Actor):
 
 class Zombie(Actor):
     def __init__(self, pos: Vector2, day: int, *, boss_profile: dict[str, object] | None = None) -> None:
-        base_speed = 82 + day * 4.2
-        base_health = 82 + day * 10
+        base_speed = 76 + day * 3.1
+        base_health = 72 + day * 8.0
         radius = 16.0
         self.variant = "walker"
         self.weapon_name = ""
@@ -1108,7 +1178,7 @@ class Zombie(Actor):
         self.anchor = Vector2(boss_profile.get("anchor", pos)) if boss_profile else Vector2(pos)
         self.boss_body = tuple(boss_profile.get("body", (108, 128, 82))) if boss_profile else (108, 128, 82)
         self.boss_accent = tuple(boss_profile.get("accent", (54, 62, 44))) if boss_profile else (54, 62, 44)
-        self.contact_damage = float(boss_profile.get("damage", 13 + day * 1.0)) if boss_profile else 13 + day * 1.0
+        self.contact_damage = float(boss_profile.get("damage", 10.5 + day * 0.75)) if boss_profile else 10.5 + day * 0.75
         self.summon_cooldown = random.uniform(5.6, 8.8) if self.is_boss else 0.0
         self.death_processed = False
         self.alert_radius = 240.0
@@ -1119,18 +1189,18 @@ class Zombie(Actor):
             roll = random.random()
             if roll < 0.17:
                 self.variant = "runner"
-                self.speed *= 1.24
-                self.max_health *= 0.92
+                self.speed *= 1.18
+                self.max_health *= 0.9
                 self.health = self.max_health
-                self.contact_damage *= 1.05
+                self.contact_damage *= 0.98
                 self.alert_radius = 280
             elif roll < 0.3:
                 self.variant = "brute"
                 self.radius = 20
                 self.speed *= 0.82
-                self.max_health *= 1.55
+                self.max_health *= 1.42
                 self.health = self.max_health
-                self.contact_damage *= 1.5
+                self.contact_damage *= 1.28
                 self.alert_radius = 220
             elif roll < 0.42:
                 self.variant = "howler"
@@ -1141,10 +1211,10 @@ class Zombie(Actor):
                 self.howl_cooldown = random.uniform(4.8, 7.2)
             elif roll < 0.56:
                 self.variant = "raider"
-                self.speed *= 1.05
-                self.max_health *= 1.12
+                self.speed *= 1.02
+                self.max_health *= 1.08
                 self.health = self.max_health
-                self.contact_damage *= 1.24
+                self.contact_damage *= 1.12
                 self.weapon_name = random.choice(("cano", "machado", "barra"))
                 self.alert_radius = 260
         else:
@@ -1192,7 +1262,7 @@ class Zombie(Actor):
             barricade_scale = 0.98 if self.pursuit_timer > 0 else 0.78
             if self.move_toward(nearest_barricade.pos, dt, barricade_scale if self.stagger <= 0 else barricade_scale * 0.46):
                 if self.attack_cooldown <= 0:
-                    impact = 8 + self.day * 0.85
+                    impact = 6.5 + self.day * 0.65
                     if self.is_boss:
                         impact *= 2.1
                     elif self.variant == "brute":
@@ -1204,6 +1274,11 @@ class Zombie(Actor):
                     game.damage_pulses.append(
                         DamagePulse(Vector2(nearest_barricade.pos), 14, 0.24, PALETTE["danger"])
                     )
+                    spike_damage = getattr(nearest_barricade, "spike_level", 0) * (4.5 if self.is_boss else 7.0)
+                    if spike_damage > 0:
+                        self.health -= spike_damage
+                        game.spawn_floating_text("spikes", self.pos, PALETTE["accent_soft"])
+                        game.impact_burst(self.pos, PALETTE["accent_soft"], radius=10, shake=0.25)
                     game.audio.play_impact("wood")
             return
 

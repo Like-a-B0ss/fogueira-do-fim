@@ -100,6 +100,8 @@ class RenderMixin:
         if self.build_menu_open and self.scenes.is_gameplay():
             self.draw_build_preview(shake_offset)
             self.draw_build_menu()
+        if self.exit_prompt_open and self.scenes.is_gameplay():
+            self.draw_exit_prompt()
 
         if self.scenes.is_title():
             self.draw_title_screen()
@@ -482,6 +484,12 @@ class RenderMixin:
             )
 
     def draw_buildings(self, shake_offset: Vector2) -> None:
+        for request in self.build_requests:
+            pos = self.world_to_screen(request.pos) + shake_offset
+            if pos.x < -120 or pos.x > SCREEN_WIDTH + 120 or pos.y < -120 or pos.y > SCREEN_HEIGHT + 120:
+                continue
+            self.draw_construction_site(pos, request)
+
         for building in self.buildings:
             pos = self.world_to_screen(building.pos) + shake_offset
             if pos.x < -120 or pos.x > SCREEN_WIDTH + 120 or pos.y < -120 or pos.y > SCREEN_HEIGHT + 120:
@@ -508,6 +516,36 @@ class RenderMixin:
                 pygame.draw.rect(self.screen, (18, 24, 26), box, border_radius=8)
                 pygame.draw.rect(self.screen, PALETTE["ui_line"], box, 1, border_radius=8)
                 self.screen.blit(text, text.get_rect(center=box.center))
+
+    def draw_construction_site(self, pos: Vector2, request: object) -> None:
+        size = int(getattr(request, "size", 32))
+        base = pygame.Rect(0, 0, size + 12, size + 12)
+        base.center = (int(pos.x), int(pos.y))
+        border_color = PALETTE["heal"] if getattr(request, "approved", False) else PALETTE["muted"]
+        fill_color = (58, 72, 54, 70) if getattr(request, "approved", False) else (48, 50, 52, 50)
+        site_surface = pygame.Surface(base.size, pygame.SRCALPHA)
+        pygame.draw.rect(site_surface, fill_color, site_surface.get_rect(), border_radius=10)
+        pygame.draw.rect(site_surface, (*border_color, 180), site_surface.get_rect(), 2, border_radius=10)
+        self.screen.blit(site_surface, base.topleft)
+
+        plank_color = (132, 104, 66)
+        pygame.draw.line(self.screen, plank_color, base.topleft, base.bottomright, 3)
+        pygame.draw.line(self.screen, plank_color, base.topright, base.bottomleft, 3)
+        pygame.draw.line(self.screen, plank_color, (base.left + 8, base.bottom - 6), (base.right - 8, base.bottom - 6), 4)
+
+        label_text = f"obra {str(getattr(request, 'label', 'obra')).lower()}"
+        if getattr(request, "approved", False):
+            progress = int(clamp(float(getattr(request, "progress", 0.0)), 0.0, 1.0) * 100)
+            label_text += f" {progress}%"
+        else:
+            label_text += " aguardando chefe"
+        label_text = self.fit_text_to_width(self.small_font, label_text, 230)
+        label = self.small_font.render(label_text, True, PALETTE["text"])
+        box = pygame.Rect(0, 0, label.get_width() + 12, label.get_height() + 4)
+        box.midbottom = (int(pos.x), int(pos.y - size * 0.7))
+        pygame.draw.rect(self.screen, (18, 24, 26), box, border_radius=8)
+        pygame.draw.rect(self.screen, border_color, box, 1, border_radius=8)
+        self.screen.blit(label, label.get_rect(center=box.center))
 
     def draw_player_tent(self, pos: Vector2, angle: float, scale: float, tone: float = 0.5) -> None:
         forward = angle_to_vector(angle)
@@ -827,9 +865,12 @@ class RenderMixin:
             tangent = barricade.tangent
             normal = angle_to_vector(barricade.angle)
             span = barricade.span
+            spike_level = getattr(barricade, "spike_level", 0)
             color = PALETTE["danger"] if barricade.health < barricade.max_health * 0.35 else PALETTE["wood"]
             if barricade.is_broken():
                 color = (62, 50, 40)
+            elif spike_level >= 2:
+                color = (152, 116, 74)
             shadow_points = [
                 pos + tangent * span * 0.52 + normal * 13,
                 pos - tangent * span * 0.52 + normal * 13,
@@ -862,6 +903,20 @@ class RenderMixin:
             ]
             pygame.draw.lines(self.screen, PALETTE["wood_dark"], False, brace_a, 4)
             pygame.draw.lines(self.screen, PALETTE["wood_dark"], False, brace_b, 4)
+
+            if spike_level > 0 and not barricade.is_broken():
+                spike_color = (188, 176, 164) if spike_level >= 2 else (128, 120, 114)
+                spike_count = 2 + spike_level * 2
+                for index in range(spike_count):
+                    t = (index + 0.5) / spike_count
+                    offset = -span * 0.42 + span * 0.84 * t
+                    anchor = pos + tangent * offset + normal * (8 + barricade.tier * 1.6)
+                    tip = anchor + normal * (9 + spike_level * 3)
+                    left = anchor - tangent * (2 + spike_level * 0.6)
+                    right = anchor + tangent * (2 + spike_level * 0.6)
+                    pygame.draw.polygon(self.screen, spike_color, [left, tip, right])
+                    pygame.draw.polygon(self.screen, (72, 70, 68), [left, tip, right], 1)
+
             ratio = barricade.health / barricade.max_health
             bar_rect = pygame.Rect(0, 0, 52, 6)
             bar_rect.midbottom = (pos.x, pos.y - 18)
@@ -872,6 +927,9 @@ class RenderMixin:
                 (bar_rect.x + 1, bar_rect.y + 1, int((bar_rect.width - 2) * ratio), bar_rect.height - 2),
                 border_radius=4,
             )
+            if spike_level > 0:
+                spike_label = self.small_font.render(f"S{spike_level}", True, PALETTE["accent_soft"])
+                self.screen.blit(spike_label, spike_label.get_rect(midbottom=(pos.x, bar_rect.y - 2)))
 
     def draw_entities(self, shake_offset: Vector2) -> None:
         all_entities = []
@@ -1499,3 +1557,33 @@ class RenderMixin:
         self.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 78)))
         self.screen.blit(subtitle, subtitle.get_rect(center=(panel.centerx, panel.y + 136)))
         self.screen.blit(retry, retry.get_rect(center=(panel.centerx, panel.y + 188)))
+
+    def draw_exit_prompt(self) -> None:
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((4, 6, 8, 186))
+        self.screen.blit(overlay, (0, 0))
+        layout = self.exit_prompt_layout()
+        panel = layout["panel"]
+        self.draw_panel(panel)
+        title = self.heading_font.render("Sair da vigia?", True, PALETTE["text"])
+        subtitle = self.body_font.render(
+            "Escolha se quer salvar antes de fechar o jogo.",
+            True,
+            PALETTE["muted"],
+        )
+        hint = self.ui_small_font.render(
+            "Enter confirma  |  Esc cancela",
+            True,
+            PALETTE["accent_soft"],
+        )
+        self.screen.blit(title, (panel.x + 24, panel.y + 20))
+        self.screen.blit(subtitle, (panel.x + 24, panel.y + 58))
+        self.screen.blit(hint, (panel.x + 24, panel.y + 84))
+
+        mouse_pos = self.input_state.mouse_screen
+        for index, (rect, label) in enumerate(zip(layout["buttons"], self.exit_prompt_options)):
+            active = self.exit_prompt_index == index or rect.collidepoint(mouse_pos)
+            pygame.draw.rect(self.screen, (62, 80, 84) if active else PALETTE["ui_panel"], rect, border_radius=14)
+            pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], rect, 1, border_radius=14)
+            text = self.body_font.render(label, True, PALETTE["text"])
+            self.screen.blit(text, text.get_rect(center=rect.center))
