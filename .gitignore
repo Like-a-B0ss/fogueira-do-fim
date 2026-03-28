@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+
+.venv/
+venv/
+env/
+
+savegame.json
+savegame_fog.png
+savegame_test.json
+savegame_test.png
+
+.DS_Store
+Thumbs.db
