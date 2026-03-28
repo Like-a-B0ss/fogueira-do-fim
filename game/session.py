@@ -83,6 +83,7 @@ class Game(WorldMixin, RenderMixin):
         self.society_panel_collapsed = False
         self.society_scroll = 0.0
         self.society_selected_survivor_name: str | None = None
+        self.hud_compact_mode = False
         self.chat_messages: list[dict[str, object]] = []
         self.chat_scroll = 0.0
         self.dialog_survivor_name: str | None = None
@@ -827,20 +828,7 @@ class Game(WorldMixin, RenderMixin):
             )
             for building in list(data.get("buildings", []))
         ]
-        self.build_requests = [
-            BuildingRequest(
-                uid=int(request.get("uid", 0)),
-                requester_name=str(request.get("requester_name", "")),
-                kind=str(request.get("kind", "barraca")),
-                label=str(request.get("label", "Obra")),
-                pos=self.list_to_vec(request.get("pos"), Vector2()),
-                size=float(request.get("size", 30.0)),
-                approved=bool(request.get("approved", False)),
-                progress=float(request.get("progress", 0.0)),
-                assigned_to=request.get("assigned_to"),
-            )
-            for request in list(data.get("build_requests", []))
-        ]
+        self.build_requests = []
         self.barricades = [
             Barricade(
                 angle=float(barricade.get("angle", 0.0)),
@@ -1006,6 +994,9 @@ class Game(WorldMixin, RenderMixin):
     def society_panel_layout(self) -> dict[str, pygame.Rect]:
         return ui_helpers.society_panel_layout(self)
 
+    def hud_toggle_rect(self) -> pygame.Rect:
+        return ui_helpers.hud_toggle_rect(self)
+
     def society_card_step(self, survivor: object | None = None) -> int:
         return ui_helpers.society_card_step(self, survivor)
 
@@ -1030,29 +1021,46 @@ class Game(WorldMixin, RenderMixin):
     def handle_society_panel_input(self) -> bool:
         return ui_helpers.handle_society_panel_input(self)
 
+    def handle_hud_input(self) -> bool:
+        return ui_helpers.handle_hud_input(self)
+
     def handle_title_input(self) -> None:
         layout = self.title_ui_layout()
         mouse_pos = self.input_state.mouse_screen
         clicked = self.input_state.attack_pressed
-        hovered_action = next((index for index, rect in enumerate(layout["action_rows"]) if rect.collidepoint(mouse_pos)), None)
+        hovered_action = next((index for index, rect in enumerate(layout["action_rows"]) if rect.collidepoint(mouse_pos)), None) if layout["action_rows"] else None
         hovered_setting = next((index for index, item in enumerate(layout["setting_rows"]) if item["row"].collidepoint(mouse_pos)), None)
+        hovered_back = bool(self.title_settings_open and layout["settings_back"].collidepoint(mouse_pos))
 
         if hovered_action is not None and hovered_action != self.title_action_index:
             self.title_action_index = hovered_action
         if hovered_setting is not None and hovered_setting != self.title_setting_index:
             self.title_setting_index = hovered_setting
 
-        if self.input_state.menu_up:
-            self.title_action_index = (self.title_action_index - 1) % len(self.title_actions)
-            self.audio.play_ui("focus")
-        elif self.input_state.menu_down:
-            self.title_action_index = (self.title_action_index + 1) % len(self.title_actions)
-            self.audio.play_ui("focus")
+        if self.title_settings_open:
+            if self.input_state.menu_up:
+                self.title_setting_index = (self.title_setting_index - 1) % len(self.title_setting_entries)
+                self.audio.play_ui("focus")
+            elif self.input_state.menu_down:
+                self.title_setting_index = (self.title_setting_index + 1) % len(self.title_setting_entries)
+                self.audio.play_ui("focus")
+        else:
+            if self.input_state.menu_up:
+                self.title_action_index = (self.title_action_index - 1) % len(self.title_actions)
+                self.audio.play_ui("focus")
+            elif self.input_state.menu_down:
+                self.title_action_index = (self.title_action_index + 1) % len(self.title_actions)
+                self.audio.play_ui("focus")
         if self.title_settings_open and (self.input_state.menu_left or self.input_state.menu_right):
             key, _, step, low, high = self.title_setting_entries[self.title_setting_index]
             direction = -1.0 if self.input_state.menu_left else 1.0
             self.adjust_runtime_setting(str(key), float(step) * direction, float(low), float(high))
             self.audio.play_ui("focus")
+
+        if clicked and hovered_back:
+            self.title_settings_open = False
+            self.audio.play_ui("back")
+            return
 
         if clicked and hovered_setting is not None:
             key, _, step, low, high = self.title_setting_entries[hovered_setting]
@@ -1065,6 +1073,9 @@ class Game(WorldMixin, RenderMixin):
                 self.adjust_runtime_setting(str(key), float(step), float(low), float(high))
                 self.audio.play_ui("focus")
                 return
+
+        if self.title_settings_open:
+            return
 
         if not (self.input_state.confirm_pressed or (clicked and hovered_action is not None)):
             return
@@ -1081,8 +1092,8 @@ class Game(WorldMixin, RenderMixin):
         elif choice == "Novo Jogo":
             self.begin_new_game_flow()
         elif choice == "Configuracoes":
-            self.title_settings_open = not self.title_settings_open
-            self.audio.play_ui("focus" if self.title_settings_open else "back")
+            self.title_settings_open = True
+            self.audio.play_ui("focus")
         elif choice == "Sair":
             self.running = False
 
@@ -1192,6 +1203,10 @@ class Game(WorldMixin, RenderMixin):
             return
 
         if self.input_state.cancel_pressed:
+            if self.scenes.is_title() and self.title_settings_open:
+                self.title_settings_open = False
+                self.audio.play_ui("back")
+                return
             if self.scenes.is_gameplay() and self.active_dialog_survivor():
                 self.close_survivor_dialog()
                 self.audio.play_ui("back")
@@ -1262,6 +1277,18 @@ class Game(WorldMixin, RenderMixin):
         if self.handle_society_panel_input():
             return
 
+        if self.handle_hud_input():
+            return
+
+        if self.input_state.hud_toggle_pressed:
+            self.hud_compact_mode = not self.hud_compact_mode
+            self.audio.play_ui("focus" if self.hud_compact_mode else "back")
+            self.set_event_message(
+                "HUD compacta ativada." if self.hud_compact_mode else "HUD completa restaurada.",
+                duration=3.2,
+            )
+            return
+
         if self.input_state.build_menu_pressed:
             self.build_menu_open = not self.build_menu_open
             self.audio.play_ui("focus" if self.build_menu_open else "back")
@@ -1300,6 +1327,8 @@ class Game(WorldMixin, RenderMixin):
             self.player.perform_interaction(self, hardline=False)
         if self.input_state.alt_interact_pressed:
             self.player.perform_interaction(self, hardline=True)
+        if self.input_state.mouse_interact_pressed:
+            self.player.perform_mouse_interaction(self)
         if self.input_state.attack_pressed:
             self.player.perform_attack(self)
 

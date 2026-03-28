@@ -14,6 +14,7 @@ class InputState:
     text_input: str = ""
     sprint: bool = False
     attack_pressed: bool = False
+    mouse_interact_pressed: bool = False
     interact_pressed: bool = False
     alt_interact_pressed: bool = False
     confirm_pressed: bool = False
@@ -29,6 +30,7 @@ class InputState:
     menu_right: bool = False
     save_pressed: bool = False
     load_pressed: bool = False
+    hud_toggle_pressed: bool = False
 
 
 class InputSystem:
@@ -75,6 +77,8 @@ class InputSystem:
                     state.alt_interact_pressed = True
                 elif event.key == pygame.K_b:
                     state.build_menu_pressed = True
+                elif event.key == pygame.K_TAB:
+                    state.hud_toggle_pressed = True
                 elif event.key == pygame.K_F5:
                     state.save_pressed = True
                 elif event.key == pygame.K_F9:
@@ -109,6 +113,8 @@ class InputSystem:
                     state.text_input += event.unicode
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 state.attack_pressed = True
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                state.mouse_interact_pressed = True
             elif event.type == pygame.MOUSEWHEEL:
                 state.mouse_wheel_y += int(event.y)
 

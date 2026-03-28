@@ -96,7 +96,7 @@ class RenderMixin:
         self.draw_fog(shake_offset)
         self.draw_lighting()
         self.draw_map_fog(shake_offset)
-        if self.scenes.is_gameplay() or self.scenes.is_game_over():
+        if self.scenes.is_gameplay():
             self.draw_hud()
         if self.build_menu_open and self.scenes.is_gameplay():
             self.draw_build_preview(shake_offset)
@@ -345,6 +345,8 @@ class RenderMixin:
         pulse = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() / 210)
         ring_radius = 18 + pulse * 4
         pygame.draw.circle(self.screen, PALETTE["accent_soft"], pos, ring_radius, 2)
+        if label_text.startswith("E "):
+            label_text = label_text.replace("E ", "E / botao direito ", 1)
         label = self.body_font.render(label_text, True, PALETTE["text"])
         box = pygame.Rect(0, 0, min(360, label.get_width() + 18), label.get_height() + 10)
         box.midbottom = (pos.x, pos.y - 20)
@@ -529,12 +531,6 @@ class RenderMixin:
             )
 
     def draw_buildings(self, shake_offset: Vector2) -> None:
-        for request in self.build_requests:
-            pos = self.world_to_screen(request.pos) + shake_offset
-            if pos.x < -120 or pos.x > SCREEN_WIDTH + 120 or pos.y < -120 or pos.y > SCREEN_HEIGHT + 120:
-                continue
-            self.draw_construction_site(pos, request)
-
         for building in self.buildings:
             pos = self.world_to_screen(building.pos) + shake_offset
             if pos.x < -120 or pos.x > SCREEN_WIDTH + 120 or pos.y < -120 or pos.y > SCREEN_HEIGHT + 120:
@@ -561,36 +557,6 @@ class RenderMixin:
                 pygame.draw.rect(self.screen, (18, 24, 26), box, border_radius=8)
                 pygame.draw.rect(self.screen, PALETTE["ui_line"], box, 1, border_radius=8)
                 self.screen.blit(text, text.get_rect(center=box.center))
-
-    def draw_construction_site(self, pos: Vector2, request: object) -> None:
-        size = int(getattr(request, "size", 32))
-        base = pygame.Rect(0, 0, size + 12, size + 12)
-        base.center = (int(pos.x), int(pos.y))
-        border_color = PALETTE["heal"] if getattr(request, "approved", False) else PALETTE["muted"]
-        fill_color = (58, 72, 54, 70) if getattr(request, "approved", False) else (48, 50, 52, 50)
-        site_surface = pygame.Surface(base.size, pygame.SRCALPHA)
-        pygame.draw.rect(site_surface, fill_color, site_surface.get_rect(), border_radius=10)
-        pygame.draw.rect(site_surface, (*border_color, 180), site_surface.get_rect(), 2, border_radius=10)
-        self.screen.blit(site_surface, base.topleft)
-
-        plank_color = (132, 104, 66)
-        pygame.draw.line(self.screen, plank_color, base.topleft, base.bottomright, 3)
-        pygame.draw.line(self.screen, plank_color, base.topright, base.bottomleft, 3)
-        pygame.draw.line(self.screen, plank_color, (base.left + 8, base.bottom - 6), (base.right - 8, base.bottom - 6), 4)
-
-        label_text = f"obra {str(getattr(request, 'label', 'obra')).lower()}"
-        if getattr(request, "approved", False):
-            progress = int(clamp(float(getattr(request, "progress", 0.0)), 0.0, 1.0) * 100)
-            label_text += f" {progress}%"
-        else:
-            label_text += " aguardando chefe"
-        label_text = self.fit_text_to_width(self.small_font, label_text, 230)
-        label = self.small_font.render(label_text, True, PALETTE["text"])
-        box = pygame.Rect(0, 0, label.get_width() + 12, label.get_height() + 4)
-        box.midbottom = (int(pos.x), int(pos.y - size * 0.7))
-        pygame.draw.rect(self.screen, (18, 24, 26), box, border_radius=8)
-        pygame.draw.rect(self.screen, border_color, box, 1, border_radius=8)
-        self.screen.blit(label, label.get_rect(center=box.center))
 
     def draw_player_tent(self, pos: Vector2, angle: float, scale: float, tone: float = 0.5) -> None:
         forward = angle_to_vector(angle)
@@ -1462,46 +1428,52 @@ class RenderMixin:
             line_gap=2,
         )
 
-        for index, action in enumerate(self.title_actions):
-            row = layout["action_rows"][index]
-            active = self.title_action_index == index or row.collidepoint(mouse_pos)
-            pygame.draw.rect(self.screen, (52, 68, 72) if active else PALETTE["ui_panel"], row, border_radius=14)
-            pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=14)
-            label = self.body_font.render(action, True, PALETTE["text"])
-            if action == "Continuar":
-                prompt_text = "Retomar o ultimo acampamento salvo."
-            elif action == "Novo Jogo":
-                prompt_text = "Entrar na clareira."
-            elif action == "Configuracoes":
-                prompt_text = "Abrir ou recolher os ajustes."
-            else:
-                prompt_text = "Fechar a sessao."
-            self.screen.blit(label, (row.x + 16, row.y + 9))
-            self.draw_wrapped_text(
-                self.ui_small_font,
-                prompt_text,
-                PALETTE["muted"],
-                row.x + 16,
-                row.y + 27,
-                row.width - 32,
-                line_gap=0,
-            )
-
-        settings_header = layout["settings_header"]
-        if self.title_settings_open:
-            pygame.draw.rect(self.screen, PALETTE["ui_panel"], settings_header, border_radius=12)
-            pygame.draw.rect(self.screen, PALETTE["ui_line"], settings_header, 1, border_radius=12)
+        if not self.title_settings_open:
+            for index, action in enumerate(self.title_actions):
+                row = layout["action_rows"][index]
+                active = self.title_action_index == index or row.collidepoint(mouse_pos)
+                pygame.draw.rect(self.screen, (52, 68, 72) if active else PALETTE["ui_panel"], row, border_radius=14)
+                pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=14)
+                label = self.body_font.render(action, True, PALETTE["text"])
+                if action == "Continuar":
+                    prompt_text = "Retomar o ultimo acampamento salvo."
+                elif action == "Novo Jogo":
+                    prompt_text = "Entrar na clareira."
+                elif action == "Configuracoes":
+                    prompt_text = "Abrir a aba de ajustes."
+                else:
+                    prompt_text = "Fechar a sessao."
+                self.screen.blit(label, (row.x + 16, row.y + 9))
+                self.draw_wrapped_text(
+                    self.ui_small_font,
+                    prompt_text,
+                    PALETTE["muted"],
+                    row.x + 16,
+                    row.y + 27,
+                    row.width - 32,
+                    line_gap=0,
+                )
+        else:
+            settings_panel = layout["settings_panel"]
+            self.draw_panel(settings_panel)
             settings_title = self.heading_font.render("Configuracoes", True, PALETTE["text"])
-            self.screen.blit(settings_title, (settings_header.x + 12, settings_header.y + 8))
-            settings_help_y = self.draw_wrapped_text(
-                self.ui_small_font,
+            settings_subtitle = self.ui_small_font.render(
                 "Clique em - e + ou use A e D para ajustar a linha marcada.",
+                True,
                 PALETTE["muted"],
-                settings_header.x + 14,
-                settings_header.y + 32,
-                settings_header.width - 28,
-                line_gap=0,
             )
+            back_hover = layout["settings_back"].collidepoint(mouse_pos)
+            pygame.draw.rect(
+                self.screen,
+                (70, 84, 88) if back_hover else PALETTE["ui_panel"],
+                layout["settings_back"],
+                border_radius=10,
+            )
+            pygame.draw.rect(self.screen, PALETTE["ui_line"], layout["settings_back"], 1, border_radius=10)
+            back_text = self.ui_small_font.render("Voltar", True, PALETTE["text"])
+            self.screen.blit(settings_title, (settings_panel.x + 18, settings_panel.y + 16))
+            self.screen.blit(settings_subtitle, (settings_panel.x + 18, settings_panel.y + 46))
+            self.screen.blit(back_text, back_text.get_rect(center=layout["settings_back"].center))
 
             for index, ((key, label, _, _, _), item) in enumerate(zip(self.title_setting_entries, layout["setting_rows"])):
                 row = item["row"]

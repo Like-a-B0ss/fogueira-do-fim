@@ -840,36 +840,22 @@ class WorldMixin:
         return Vector2(candidates[0][1])
 
     def propose_survivor_build_request(self, survivor: Survivor) -> BuildingRequest | None:
-        """Transforma a necessidade do morador em um pedido claro para o chefe aprovar."""
+        """Transforma a necessidade do morador em sugestao de chat, sem reservar obra no chao."""
         kind = self.desired_survivor_build_kind(survivor)
         if not kind:
             return None
-        site = self.find_build_request_site(kind, survivor)
-        if site is None:
-            survivor.build_request_cooldown = self.random.uniform(26.0, 44.0)
-            return None
         recipe = self.build_recipe_for(kind)
-        request = BuildingRequest(
-            uid=self.next_build_request_uid,
-            requester_name=survivor.name,
-            kind=kind,
-            label=str(recipe["label"]),
-            pos=site,
-            size=float(recipe["size"]),
-        )
-        self.next_build_request_uid += 1
-        self.build_requests.append(request)
         survivor.build_request_cooldown = self.random.uniform(64.0, 92.0)
         wood_cost, scrap_cost = self.build_cost_for(kind)
         self.trigger_survivor_bark(survivor, f"Chefe, precisamos de {str(recipe['label']).lower()}.", PALETTE["accent_soft"], duration=3.0)
         self.add_chat_message(
             survivor.name,
-            f"pediu {str(recipe['label']).lower()}. Custo: {wood_cost} tabuas e {scrap_cost} sucata.",
+            f"acha que a base precisa de {str(recipe['label']).lower()}. Custo: {wood_cost} tabuas e {scrap_cost} sucata.",
             PALETTE["accent_soft"],
             source="npc",
         )
-        self.set_event_message(f"{survivor.name} quer erguer {str(recipe['label']).lower()}. Chegue perto e aprove se fizer sentido.", duration=6.0)
-        return request
+        self.set_event_message(f"{survivor.name} sugeriu {str(recipe['label']).lower()} no chat do acampamento.", duration=5.2)
+        return None
 
     def approve_build_request(self, request: BuildingRequest) -> tuple[bool, str]:
         """Confirma o pedido do morador e libera os recursos da obra."""
@@ -1060,6 +1046,72 @@ class WorldMixin:
             if survivor.distance_to(player.pos) < 92:
                 return survivor.pos, f"E conversar com {survivor.name.lower()}"
         return None
+
+    def mouse_interaction_target(self, cursor_world: Vector2) -> dict[str, object] | None:
+        """Escolhe um alvo de interacao pelo mouse para aliviar a proximidade no acampamento."""
+        candidates: list[tuple[float, dict[str, object]]] = []
+
+        def consider(kind: str, pos: Vector2, *, radius: float, reach: float, obj: object | None = None) -> None:
+            distance = cursor_world.distance_to(pos)
+            if distance <= radius:
+                candidates.append(
+                    (
+                        distance,
+                        {
+                            "kind": kind,
+                            "pos": Vector2(pos),
+                            "reach": reach,
+                            "obj": obj,
+                        },
+                    )
+                )
+
+        active_event = self.active_dynamic_event()
+        if active_event:
+            consider(f"event:{active_event.kind}", Vector2(active_event.pos), radius=44, reach=132, obj=active_event)
+            if active_event.kind in {"fuga", "desercao", "doenca"}:
+                target = next(
+                    (survivor for survivor in self.survivors if survivor.name == active_event.target_name and survivor.is_alive()),
+                    None,
+                )
+                if target:
+                    consider(f"event:{active_event.kind}", Vector2(target.pos), radius=36, reach=104, obj=active_event)
+
+        downed_member = self.nearest_downed_expedition_member(cursor_world)
+        if downed_member and cursor_world.distance_to(downed_member.pos) < 28:
+            consider("downed_member", Vector2(downed_member.pos), radius=28, reach=112, obj=downed_member)
+
+        for interest_point in self.interest_points:
+            if not interest_point.resolved:
+                consider("interest", Vector2(interest_point.pos), radius=max(28, interest_point.radius * 0.54), reach=136, obj=interest_point)
+
+        for node in self.resource_nodes:
+            if node.is_available():
+                consider(f"node:{node.kind}", Vector2(node.pos), radius=30, reach=112, obj=node)
+
+        for barricade in self.barricades:
+            consider("barricade", Vector2(barricade.pos), radius=26, reach=118, obj=barricade)
+
+        consider("workshop", Vector2(self.workshop_pos), radius=42, reach=136)
+        consider("radio", Vector2(self.radio_pos), radius=42, reach=132)
+        consider("bonfire", Vector2(self.bonfire_pos), radius=46, reach=130)
+
+        infirmary = self.nearest_building_of_kind("enfermaria", cursor_world)
+        if infirmary and cursor_world.distance_to(infirmary.pos) < 40:
+            consider("infirmary", Vector2(infirmary.pos), radius=40, reach=122, obj=infirmary)
+
+        sleep_slot = self.nearest_sleep_slot(cursor_world)
+        if sleep_slot and cursor_world.distance_to(Vector2(sleep_slot["interact_pos"])) < 44:
+            consider("sleep", Vector2(sleep_slot["interact_pos"]), radius=44, reach=132, obj=sleep_slot)
+
+        for survivor in self.survivors:
+            if survivor.is_alive() and not self.is_survivor_on_expedition(survivor):
+                consider("survivor", Vector2(survivor.pos), radius=28, reach=132, obj=survivor)
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
 
     def total_bed_capacity(self) -> int:
         return len(self.camp_sleep_slots())

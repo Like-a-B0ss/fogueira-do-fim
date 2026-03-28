@@ -186,47 +186,11 @@ def conversation_options_for_survivor(game, survivor: object) -> list[dict[str, 
         {"label": "Fica de vigia", "action": "guard"},
         {"label": "Vai descansar", "action": "rest"},
     ]
-    request = game.pending_build_request_for_survivor(survivor)
-    if request and not request.approved:
-        wood_cost, scrap_cost = game.build_cost_for(request.kind)
-        options.append(
-            {
-                "label": f"Aprovar {request.label} ({wood_cost}T {scrap_cost}S)",
-                "action": f"approve_build:{request.uid}",
-            }
-        )
-    elif request and request.approved:
-        progress = int(clamp(request.progress, 0.0, 1.0) * 100)
-        options.append(
-            {
-                "label": f"Obra em andamento {progress}%",
-                "action": "build_status",
-            }
-        )
     return options
 
 
 def execute_survivor_dialog_action(game, survivor: object, action: str) -> None:
     """Executa a conversa curta e transforma a fala em efeito pratico no acampamento."""
-    if action.startswith("approve_build:"):
-        raw_uid = action.split(":", 1)[1]
-        request = game.build_request_by_uid(int(raw_uid)) if raw_uid.isdigit() else None
-        success, message = game.approve_build_request(request) if request else (False, "Pedido invalido.")
-        color = PALETTE["heal"] if success else PALETTE["danger_soft"]
-        game.spawn_floating_text(message.lower(), survivor.pos, color)
-        if success:
-            game.audio.play_ui("order")
-        else:
-            game.audio.play_alert()
-        return
-    if action == "build_status":
-        request = game.pending_build_request_for_survivor(survivor)
-        if request and request.approved:
-            progress = int(clamp(request.progress, 0.0, 1.0) * 100)
-            text = f"Tua obra esta em {progress}%."
-            game.trigger_survivor_bark(survivor, text, PALETTE["accent_soft"], duration=2.6)
-            game.audio.play_ui("focus")
-        return
     if action == "status":
         text, color = game.random.choice(game.survivor_bark_options(survivor))
         game.trigger_survivor_bark(survivor, text, color, duration=2.8)

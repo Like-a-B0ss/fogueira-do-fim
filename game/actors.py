@@ -361,6 +361,156 @@ class Player(Actor):
                 game.audio.play_ui("order")
                 return
 
+    def perform_mouse_interaction(self, game: "Game") -> None:
+        """Interage com o alvo sob o mouse para aliviar o aperto visual do acampamento."""
+        if self.interact_cooldown > 0:
+            return
+        target = game.mouse_interaction_target(game.screen_to_world(game.input_state.mouse_screen))
+        if not target:
+            return
+
+        target_pos = Vector2(target["pos"])
+        reach = float(target.get("reach", 112.0))
+        if self.distance_to(target_pos) > reach:
+            game.spawn_floating_text("chegue mais perto", target_pos, PALETTE["muted"])
+            game.audio.play_alert()
+            self.interact_cooldown = 0.2
+            return
+
+        self.interact_cooldown = 0.35
+        kind = str(target["kind"])
+        obj = target.get("obj")
+
+        if kind.startswith("event:") and obj:
+            event = obj
+            accepted = True
+            if getattr(event, "kind", "") == "faccao":
+                accepted = True
+            if game.resolve_dynamic_event(event, accepted=accepted):
+                if getattr(event, "kind", "") in {"incendio", "alarme"}:
+                    game.audio.play_interact("repair")
+                else:
+                    game.audio.play_interact()
+            else:
+                game.audio.play_alert()
+            return
+
+        if kind == "downed_member" and obj:
+            game.revive_expedition_member(obj)
+            game.set_event_message(f"Voce puxou {obj.name} de volta para a coluna.", duration=4.8)
+            game.audio.play_interact("repair")
+            return
+
+        if kind == "interest" and obj:
+            game.audio.play_interact()
+            game.resolve_interest_point(obj)
+            return
+
+        if kind.startswith("node:") and obj and obj.is_available():
+            harvested = obj.harvest()
+            if harvested:
+                bundle = game.add_resource_bundle(game.resource_node_bundle(obj))
+                color = PALETTE["heal"] if obj.kind == "food" else ROLE_COLORS["mensageiro"]
+                game.spawn_floating_text(game.bundle_summary(bundle or game.resource_node_bundle(obj)), obj.pos, color)
+                game.emit_embers(obj.pos, 3, smoky=True)
+                game.audio.play_interact()
+            return
+
+        if kind == "barricade" and obj:
+            if obj.health < obj.max_health and game.wood >= 1:
+                game.wood -= 1
+                obj.repair(24)
+                game.spawn_floating_text("barricada reforcada", obj.pos, PALETTE["heal"])
+                game.impact_burst(obj.pos, PALETTE["heal"], radius=11, shake=0.55, ember_count=2, smoky=True)
+                game.audio.play_interact("repair")
+                return
+            if game.upgrade_barricade(obj):
+                game.audio.play_interact("repair")
+                return
+            if getattr(obj, "spike_level", 0) >= 3:
+                game.spawn_floating_text("spikes no limite", obj.pos, PALETTE["muted"])
+            else:
+                wood_cost, scrap_cost = game.barricade_upgrade_cost(obj)
+                game.spawn_floating_text(f"pede {wood_cost} tabuas e {scrap_cost} sucata", obj.pos, PALETTE["muted"])
+            return
+
+        if kind == "workshop":
+            if game.can_use_workshop_saw():
+                stored = game.cut_planks_at_workshop()
+                if stored:
+                    game.spawn_floating_text(game.bundle_summary(stored), game.workshop_pos, PALETTE["accent_soft"])
+                    game.set_event_message("A oficina cortou tabuas devagar. A serraria ainda segue sendo a versao eficiente.", duration=4.8)
+                    game.impact_burst(game.workshop_pos, PALETTE["accent_soft"], radius=11, shake=0.45, ember_count=3, smoky=True)
+                    game.audio.play_interact("repair")
+                    return
+                game.spawn_floating_text("estoque cheio", game.workshop_pos, PALETTE["muted"])
+                return
+            if game.expand_camp():
+                game.audio.play_interact("repair")
+                return
+            if game.camp_level < game.max_camp_level:
+                log_cost, scrap_cost = game.expansion_cost()
+                game.spawn_floating_text(f"oficina pede {log_cost} toras e {scrap_cost} sucata", game.workshop_pos, PALETTE["muted"])
+            return
+
+        if kind == "sleep" and obj:
+            if not game.active_dynamic_events:
+                game.begin_player_sleep(obj)
+                game.audio.play_interact("bonfire")
+            else:
+                game.spawn_floating_text("ha crise demais para dormir", self.pos, PALETTE["danger_soft"])
+                game.audio.play_alert()
+            return
+
+        if kind == "bonfire":
+            if game.available_fuel() >= 1:
+                fed, label, color = game.add_fuel_to_bonfire()
+                if fed:
+                    for survivor in game.survivors:
+                        if survivor.distance_to(game.bonfire_pos) < 170:
+                            survivor.morale = clamp(survivor.morale + 3.5, 0, 100)
+                            game.adjust_trust(survivor, 1.1)
+                    game.spawn_floating_text(label, game.bonfire_pos, color)
+                    game.emit_embers(game.bonfire_pos, 12)
+                    game.audio.play_interact()
+            else:
+                game.spawn_floating_text("sem combustivel", game.bonfire_pos, PALETTE["muted"])
+            return
+
+        if kind == "infirmary" and game.has_medical_supplies() and self.health < self.max_health - 8:
+            if game.medicine > 0:
+                game.medicine -= 1
+                self.health = clamp(self.health + 26, 0, self.max_health)
+                game.spawn_floating_text("curativo pesado", target_pos, PALETTE["heal"])
+            elif game.herbs > 0:
+                game.herbs -= 1
+                self.health = clamp(self.health + 14, 0, self.max_health)
+                game.spawn_floating_text("ervas medicinais", target_pos, PALETTE["heal"])
+            game.audio.play_interact("repair")
+            return
+
+        if kind == "radio":
+            if game.active_expedition:
+                status = game.expedition_status_text(short=False) or "A equipe esta fora da base."
+                game.set_event_message(status, duration=5.0)
+                game.spawn_floating_text("expedicao", game.radio_pos, PALETTE["accent_soft"])
+                game.audio.play_ui("focus")
+                return
+            launched, message = game.launch_best_expedition()
+            game.spawn_floating_text("expedicao" if launched else "sem equipe", game.radio_pos, PALETTE["accent_soft"] if launched else PALETTE["danger_soft"])
+            if launched:
+                game.audio.play_ui("order")
+            else:
+                game.audio.play_alert()
+            if message:
+                game.set_event_message(message, duration=4.8)
+            return
+
+        if kind == "survivor" and obj:
+            game.open_survivor_dialog(obj)
+            game.spawn_floating_text(f"falando com {obj.name.lower()}", obj.pos, PALETTE["accent_soft"])
+            game.audio.play_ui("order")
+
 
 class Survivor(Actor):
     def __init__(
@@ -580,13 +730,8 @@ class Survivor(Actor):
             if infirmary:
                 self.start_state("treatment", infirmary.pos, infirmary)
                 return
-        build_request = game.pending_build_request_for_survivor(self)
-        if build_request and build_request.approved and self.energy > 26 and self.health > 34:
-            self.start_state("build_site", build_request.pos, build_request)
-            return
-        if not build_request and self.build_request_cooldown <= 0:
+        if self.build_request_cooldown <= 0:
             game.propose_survivor_build_request(self)
-            build_request = game.pending_build_request_for_survivor(self)
         assigned_building = game.building_by_id(self.assigned_building_id)
         focus_override = game.survivor_focus_override(self)
         if focus_override:
@@ -1002,30 +1147,6 @@ class Survivor(Actor):
                     game.damage_pulses.append(DamagePulse(Vector2(zombie.pos), 12, 0.22, PALETTE["accent_soft"]))
                     game.spawn_floating_text("vigia", tower.pos, PALETTE["energy"])
                     game.audio.play_impact("body")
-            return
-
-        if self.state == "build_site":
-            request = self.target_ref if isinstance(self.target_ref, BuildingRequest) else game.pending_build_request_for_survivor(self)
-            if not request or request not in game.build_requests or not request.approved:
-                self.decision_timer = 0
-                return
-            if self.move_toward(request.pos, dt):
-                speed = 0.3
-                if self.role == "artesa":
-                    speed += 0.08
-                elif self.role == "lenhador":
-                    speed += 0.04
-                if self.has_trait("resiliente"):
-                    speed += 0.03
-                request.progress = clamp(request.progress + dt * speed, 0.0, 1.0)
-                self.energy = clamp(self.energy - 2.2 * dt, 0, 100)
-                self.exhaustion = clamp(self.exhaustion + 1.8 * dt, 0, 100)
-                if request.progress >= 1.0:
-                    if game.complete_build_request(request):
-                        self.morale = clamp(self.morale + 5.0, 0, 100)
-                        game.adjust_trust(self, 1.6)
-                        game.audio.play_interact("repair")
-                    self.decision_timer = 0.5
             return
 
         if self.state == "garden":
