@@ -1591,16 +1591,10 @@ class RenderMixin:
         panel = layout["panel"]
         self.draw_panel(panel)
         title = self.heading_font.render("Sair da vigia?", True, PALETTE["text"])
-        subtitle = self.body_font.render(
-            "Escolha se quer salvar antes de fechar o jogo.",
-            True,
-            PALETTE["muted"],
-        )
-        hint = self.ui_small_font.render(
-            "Enter confirma  |  Esc cancela",
-            True,
-            PALETTE["accent_soft"],
-        )
+        subtitle_text = self.fit_text_to_width(self.body_font, "Escolha se quer salvar antes de fechar o jogo.", panel.width - 48)
+        hint_text = self.fit_text_to_width(self.ui_small_font, "Enter confirma  |  Esc cancela", panel.width - 48)
+        subtitle = self.body_font.render(subtitle_text, True, PALETTE["muted"])
+        hint = self.ui_small_font.render(hint_text, True, PALETTE["accent_soft"])
         self.screen.blit(title, (panel.x + 24, panel.y + 20))
         self.screen.blit(subtitle, (panel.x + 24, panel.y + 58))
         self.screen.blit(hint, (panel.x + 24, panel.y + 84))
@@ -1610,5 +1604,5 @@ class RenderMixin:
             active = self.exit_prompt_index == index or rect.collidepoint(mouse_pos)
             pygame.draw.rect(self.screen, (62, 80, 84) if active else PALETTE["ui_panel"], rect, border_radius=14)
             pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], rect, 1, border_radius=14)
-            text = self.body_font.render(label, True, PALETTE["text"])
+            text = self.body_font.render(self.fit_text_to_width(self.body_font, label, rect.width - 24), True, PALETTE["text"])
             self.screen.blit(text, text.get_rect(center=rect.center))

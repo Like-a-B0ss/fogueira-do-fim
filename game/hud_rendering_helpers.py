@@ -16,13 +16,19 @@ def draw_chat_panel(game) -> None:
     if survivor:
         title = game.heading_font.render(f"Falando com {survivor.name}", True, PALETTE["text"])
         subtitle_base = f"{survivor.role}  |  {survivor.primary_trait()}  |  estado {survivor.state_label}"
-        subtitle_text = game.fit_text_to_width(game.ui_small_font, subtitle_base, panel.width - 180)
+        subtitle_max = panel.width - title.get_width() - 54
+        subtitle_text = game.fit_text_to_width(game.ui_small_font, subtitle_base, max(180, subtitle_max))
     else:
         title = game.heading_font.render("Vozes da Clareira", True, PALETTE["text"])
-        subtitle_text = "Aproxime-se de um morador e aperte E para conversar direto."
+        subtitle_text = game.fit_text_to_width(
+            game.ui_small_font,
+            "Aproxime-se de um morador e aperte E para conversar direto.",
+            panel.width - title.get_width() - 54,
+        )
     subtitle = game.ui_small_font.render(subtitle_text, True, PALETTE["muted"])
     game.screen.blit(title, (panel.x + 14, panel.y + 8))
-    game.screen.blit(subtitle, (panel.x + 162, panel.y + 13))
+    subtitle_x = panel.x + 20 + title.get_width() + 14
+    game.screen.blit(subtitle, (subtitle_x, panel.y + 13))
 
     previous_clip = game.screen.get_clip()
     game.screen.set_clip(viewport)
@@ -112,7 +118,7 @@ def draw_hud(game) -> None:
     toggle_text = game.body_font.render(toggle_label, True, PALETTE["text"])
     game.screen.blit(toggle_text, toggle_text.get_rect(center=toggle_rect.center))
 
-    panel = pygame.Rect(18, 16, 358, 182 if compact_mode else 228)
+    panel = pygame.Rect(18, 16, 358, 182 if compact_mode else 248)
     game.draw_panel(panel)
     title = game.heading_font.render("Acampamento da Clareira", True, PALETTE["text"])
     game.screen.blit(title, (panel.x + 18, panel.y + 14))
@@ -141,7 +147,7 @@ def draw_hud(game) -> None:
         panel.width - 36,
         line_gap=0,
     ) + 2
-    game.draw_wrapped_text(
+    info_bottom = game.draw_wrapped_text(
         game.ui_small_font,
         f"Base {game.camp_level + 1}  |  fase {game.economy_phase_label()}  |  camas {len(game.survivors)}/{game.total_bed_capacity()}  |  fogo {game.bonfire_stage()}",
         PALETTE["muted"],
@@ -159,17 +165,20 @@ def draw_hud(game) -> None:
         game.draw_resource_bar(panel.x + 18, panel.y + 166, 152, 12, game.bonfire_heat / 100, "Chama", PALETTE["light"])
         game.draw_resource_bar(panel.x + 190, panel.y + 166, 152, 12, game.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
     else:
-        game.draw_resource_meter(panel.x + 18, panel.y + 114, 72, game.logs, "Toras", (170, 130, 78))
-        game.draw_resource_meter(panel.x + 102, panel.y + 114, 72, game.wood, "Tabuas", PALETTE["accent_soft"])
-        game.draw_resource_meter(panel.x + 186, panel.y + 114, 72, game.food, "Insumos", PALETTE["heal"])
-        game.draw_resource_meter(panel.x + 270, panel.y + 114, 72, game.herbs, "Ervas", (124, 176, 102))
-        game.draw_resource_meter(panel.x + 18, panel.y + 164, 72, game.scrap, "Sucata", ROLE_COLORS["mensageiro"])
-        game.draw_resource_meter(panel.x + 102, panel.y + 164, 72, game.meals, "Refeic.", PALETTE["morale"])
-        game.draw_resource_meter(panel.x + 186, panel.y + 164, 72, game.medicine, "Remed.", (194, 130, 130))
-        game.draw_resource_bar(panel.x + 18, panel.y + 214, 152, 12, game.bonfire_heat / 100, "Chama", PALETTE["light"])
-        game.draw_resource_bar(panel.x + 190, panel.y + 214, 152, 12, game.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
+        meter_y = max(panel.y + 128, info_bottom + 10)
+        second_row_y = meter_y + 50
+        bar_y = second_row_y + 50
+        game.draw_resource_meter(panel.x + 18, meter_y, 72, game.logs, "Toras", (170, 130, 78))
+        game.draw_resource_meter(panel.x + 102, meter_y, 72, game.wood, "Tabuas", PALETTE["accent_soft"])
+        game.draw_resource_meter(panel.x + 186, meter_y, 72, game.food, "Insumos", PALETTE["heal"])
+        game.draw_resource_meter(panel.x + 270, meter_y, 72, game.herbs, "Ervas", (124, 176, 102))
+        game.draw_resource_meter(panel.x + 18, second_row_y, 72, game.scrap, "Sucata", ROLE_COLORS["mensageiro"])
+        game.draw_resource_meter(panel.x + 102, second_row_y, 72, game.meals, "Refeic.", PALETTE["morale"])
+        game.draw_resource_meter(panel.x + 186, second_row_y, 72, game.medicine, "Remed.", (194, 130, 130))
+        game.draw_resource_bar(panel.x + 18, bar_y, 152, 12, game.bonfire_heat / 100, "Chama", PALETTE["light"])
+        game.draw_resource_bar(panel.x + 190, bar_y, 152, 12, game.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
 
-    player_panel = pygame.Rect(18, 212 if compact_mode else 260, 358, 92 if compact_mode else 128)
+    player_panel = pygame.Rect(18, 212 if compact_mode else panel.bottom + 12, 358, 92 if compact_mode else 128)
     game.draw_panel(player_panel)
     heading = game.heading_font.render("Chefe do Acampamento", True, PALETTE["text"])
     game.screen.blit(heading, (player_panel.x + 18, player_panel.y + 14))
@@ -233,15 +242,18 @@ def draw_hud(game) -> None:
         compact_surface = game.ui_small_font.render(compact_text, True, PALETTE["muted"])
         game.screen.blit(compact_surface, (society_panel.x + 18, society_panel.y + 48))
     else:
-        game.draw_wrapped_text(
+        line_one = game.fit_text_to_width(
             game.ui_small_font,
-            f"moral {game.average_morale():.0f}  |  insanidade {game.average_insanity():.0f}  |  feudos {game.feud_count()}  |  {game.faction_label(strongest_faction)} {game.faction_standing_label(strongest_faction)}",
-            PALETTE["muted"],
-            society_panel.x + 18,
-            society_panel.y + 46,
+            f"moral {game.average_morale():.0f}  |  insanidade {game.average_insanity():.0f}  |  feudos {game.feud_count()}",
             society_panel.width - 64,
-            line_gap=0,
         )
+        line_two = game.fit_text_to_width(
+            game.ui_small_font,
+            f"{game.faction_label(strongest_faction)} {game.faction_standing_label(strongest_faction)}",
+            society_panel.width - 64,
+        )
+        game.screen.blit(game.ui_small_font.render(line_one, True, PALETTE["muted"]), (society_panel.x + 18, society_panel.y + 46))
+        game.screen.blit(game.ui_small_font.render(line_two, True, PALETTE["muted"]), (society_panel.x + 18, society_panel.y + 66))
 
         game.clamp_society_scroll()
         viewport = society_layout["viewport"]
@@ -274,12 +286,18 @@ def draw_hud(game) -> None:
             pygame.draw.rect(game.screen, (72, 90, 94), scroll_track.inflate(0, -scroll_track.height // 2), border_radius=6)
 
     if not compact_mode:
-        directive_panel = pygame.Rect(SCREEN_WIDTH - 346, 410, 328, 194)
+        chat_panel = game.chat_panel_layout()["panel"]
+        directive_y = society_panel.bottom + 16
+        directive_height = max(148, chat_panel.y - directive_y - 14)
+        directive_panel = pygame.Rect(SCREEN_WIDTH - 346, directive_y, 328, directive_height)
         game.draw_panel(directive_panel)
         directive_title = game.heading_font.render("Tarefas do Chefe", True, PALETTE["text"])
         game.screen.blit(directive_title, (directive_panel.x + 18, directive_panel.y + 14))
         bullet_y = directive_panel.y + 52
-        for index, line in enumerate(game.current_objectives()):
+        previous_clip = game.screen.get_clip()
+        objective_view = pygame.Rect(directive_panel.x + 14, directive_panel.y + 46, directive_panel.width - 28, directive_panel.height - 58)
+        game.screen.set_clip(objective_view)
+        for index, line in enumerate(game.current_objectives()[:3]):
             bullet_y = game.draw_wrapped_text(
                 game.ui_small_font,
                 f"{index + 1}. {line}",
@@ -287,8 +305,9 @@ def draw_hud(game) -> None:
                 directive_panel.x + 18,
                 bullet_y,
                 directive_panel.width - 32,
-                line_gap=2,
-            ) + 10
+                line_gap=1,
+            ) + 8
+        game.screen.set_clip(previous_clip)
 
     if not compact_mode or game.active_dialog_survivor():
         game.draw_chat_panel()
@@ -298,20 +317,23 @@ def draw_hud(game) -> None:
         info_panel = pygame.Rect(chat_panel.right + 18, chat_panel.y, SCREEN_WIDTH - chat_panel.right - 36, chat_panel.height)
         game.draw_panel(info_panel)
         controls = (
-            "WASD mover  |  Shift correr  |  Clique/espaco atacar  |  E agir  |  botao direito interage  |  F5/F9 salvar",
+            "WASD mover  |  Shift correr  |  Clique/espaco atacar",
+            "E agir  |  botao direito interage  |  F5/F9 salvar",
             game.event_message if game.event_timer > 0 else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "Chegue perto de um morador e aperte E para conversar."),
         )
-        line_y = info_panel.y + 14
+        line_y = info_panel.y + 12
         for index, line in enumerate(controls):
+            font = game.ui_small_font if index < 2 else game.body_font
+            color = PALETTE["text"] if index < 2 else (PALETTE["danger_soft"] if game.active_dynamic_events else PALETTE["muted"])
             line_y = game.draw_wrapped_text(
-                game.ui_small_font if index == 0 else game.body_font,
+                font,
                 line,
-                PALETTE["text"] if index == 0 else (PALETTE["danger_soft"] if game.active_dynamic_events else PALETTE["muted"]),
-                info_panel.x + 18,
+                color,
+                info_panel.x + 14,
                 line_y,
-                info_panel.width - 36,
-                line_gap=3,
-            ) + 10
+                info_panel.width - 28,
+                line_gap=2,
+            ) + 6
 
     if game.morale_flash > 0:
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -444,17 +466,9 @@ def draw_survivor_card(
     game.screen.blit(toggle, toggle.get_rect(topright=(rect.right - 12, rect.y + 4)))
 
     if not selected:
-        summary = (
-            f"vida {int(survivor.health)}/{int(survivor.max_health)}"
-            f"  |  moral {int(survivor.morale)}"
-            f"  |  confianca {int(survivor.trust_leader)}"
-        )
-        summary_surface = game.small_font.render(
-            game.fit_text_to_width(game.small_font, summary, width - 120),
-            True,
-            PALETTE["muted"],
-        )
-        game.screen.blit(summary_surface, (x + 34, y + height - 18))
+        summary = f"{survivor.state_label}  |  moral {int(survivor.morale)}"
+        summary_surface = game.small_font.render(game.fit_text_to_width(game.small_font, summary, width - 112), True, PALETTE["muted"])
+        game.screen.blit(summary_surface, (x + 34, y + 52))
         return
 
     detail_top = y + 60

@@ -58,11 +58,11 @@ def tips_ui_layout(_game) -> dict[str, pygame.Rect]:
 
 def society_panel_layout(game) -> dict[str, pygame.Rect]:
     compact = bool(getattr(game, "hud_compact_mode", False))
-    height = 92 if game.society_panel_collapsed or compact else 394
+    height = 92 if game.society_panel_collapsed or compact else 372
     panel = pygame.Rect(SCREEN_WIDTH - 346, 16, 328, height)
     header = pygame.Rect(panel.x + 12, panel.y + 10, panel.width - 24, 54)
     toggle = pygame.Rect(panel.right - 38, panel.y + 16, 20, 20)
-    viewport = pygame.Rect(panel.x + 16, panel.y + 96, 284, max(0, panel.height - 114))
+    viewport = pygame.Rect(panel.x + 16, panel.y + 106, 284, max(0, panel.height - 124))
     scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)
     return {
         "panel": panel,
@@ -75,7 +75,7 @@ def society_panel_layout(game) -> dict[str, pygame.Rect]:
 
 def society_card_height(game, survivor) -> int:
     selected = getattr(game, "society_selected_survivor_name", None) == getattr(survivor, "name", None)
-    return 152 if selected else 58
+    return 152 if selected else 72
 
 
 def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
@@ -114,7 +114,7 @@ def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
 
 def society_card_step(game, survivor=None) -> int:
     if survivor is None:
-        return 66
+        return 80
     return society_card_height(game, survivor) + 8
 
 
