@@ -90,6 +90,7 @@ class RenderMixin:
         self.draw_interest_points(shake_offset)
         self.draw_dynamic_events(shake_offset)
         self.draw_entities(shake_offset)
+        self.draw_weather_overlay(shake_offset)
         self.draw_interaction_prompt(shake_offset)
         self.draw_particles(shake_offset)
         self.draw_fog(shake_offset)
@@ -181,6 +182,11 @@ class RenderMixin:
         top = math.floor((self.camera.y - CHUNK_SIZE) / CHUNK_SIZE)
         right = math.ceil((self.camera.x + SCREEN_WIDTH + CHUNK_SIZE) / CHUNK_SIZE)
         bottom = math.ceil((self.camera.y + SCREEN_HEIGHT + CHUNK_SIZE) / CHUNK_SIZE)
+        daylight = self.daylight_factor()
+        cloud_cover = self.weather_cloud_cover()
+        weather_kind = getattr(self, "weather_kind", "clear")
+        global_darkness = self.visual_darkness_factor()
+        weather_cool = clamp(cloud_cover * 0.58 + (0.18 if weather_kind == "rain" else 0.0), 0.0, 0.82)
         for chunk_x in range(left, right + 1):
             for chunk_y in range(top, bottom + 1):
                 biome = self.chunk_biome_kind(chunk_x, chunk_y)
@@ -201,10 +207,11 @@ class RenderMixin:
                 )
                 if biome != "forest":
                     depth = clamp(depth + 0.08, 0.0, 1.0)
-                dark_scale = 1.0 - depth * 0.46
-                light_scale = 1.0 - depth * 0.38
-                dark = tuple(int(channel * dark_scale) for channel in dark)
-                light = tuple(int(channel * light_scale) for channel in light)
+                weather_dim = cloud_cover * (0.16 + daylight * 0.12) + global_darkness * 0.18
+                dark_scale = max(0.34, 1.0 - depth * 0.46 - weather_dim * 0.38)
+                light_scale = max(0.24, 1.0 - depth * 0.38 - weather_dim * 0.46)
+                dark = tuple(int(lerp(channel * dark_scale, target, weather_cool * 0.52)) for channel, target in zip(dark, (26, 36, 40)))
+                light = tuple(int(lerp(channel * light_scale, target, weather_cool * 0.45)) for channel, target in zip(light, (68, 82, 88)))
                 pygame.draw.rect(self.screen, dark, rect)
                 accent_seed = self.hash_noise(chunk_x, chunk_y, 83)
                 for index in range(4):
@@ -217,6 +224,44 @@ class RenderMixin:
                     veil = pygame.Surface(rect.size, pygame.SRCALPHA)
                     veil.fill((10, 14, 16, int(22 + depth * 72)))
                     self.screen.blit(veil, rect.topleft)
+
+    def draw_weather_overlay(self, shake_offset: Vector2) -> None:
+        cloud_cover = self.weather_cloud_cover()
+        darkness = self.visual_darkness_factor()
+        weather_kind = getattr(self, "weather_kind", "clear")
+        strength = float(getattr(self, "weather_strength", 0.0))
+        if cloud_cover <= 0.08 and weather_kind != "rain":
+            return
+
+        tick = pygame.time.get_ticks() / 1000.0
+        if cloud_cover > 0.12:
+            cloud_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            sky_alpha = int((12 + cloud_cover * 44 + darkness * 16) * (0.8 if weather_kind == "clear" else 1.0))
+            for index in range(6):
+                width = 260 + index * 34 + int(cloud_cover * 90)
+                height = 92 + index * 12 + int(cloud_cover * 28)
+                drift = tick * (10 + strength * 12) + index * 160
+                x = (drift + math.sin(tick * 0.35 + index * 1.2) * 90) % (SCREEN_WIDTH + width * 2) - width
+                y = 38 + (index * 88) % (SCREEN_HEIGHT - 120) + math.sin(tick * 0.22 + index) * 18
+                ellipse = pygame.Rect(int(x), int(y), width, height)
+                pygame.draw.ellipse(cloud_surface, (56, 66, 74, sky_alpha), ellipse)
+                inner = ellipse.inflate(-int(width * 0.16), -int(height * 0.24))
+                pygame.draw.ellipse(cloud_surface, (70, 82, 90, max(10, sky_alpha - 8)), inner)
+            self.screen.blit(cloud_surface, (0, 0))
+
+        if weather_kind == "rain":
+            rain_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            streaks = int(28 + strength * 42)
+            fall = 18 + strength * 22
+            drift = 5 + strength * 8
+            for index in range(streaks):
+                phase = tick * (150 + strength * 80) + index * 43
+                x = (phase * 1.11 + index * 53) % (SCREEN_WIDTH + 160) - 80
+                y = (phase * 1.83 + index * 79) % (SCREEN_HEIGHT + 220) - 110
+                start = Vector2(x + shake_offset.x * 0.2, y + shake_offset.y * 0.2)
+                end = start + Vector2(-drift, fall)
+                pygame.draw.line(rain_surface, (154, 176, 188, int(38 + strength * 36)), start, end, 1)
+            self.screen.blit(rain_surface, (0, 0))
 
     def draw_interest_points(self, shake_offset: Vector2) -> None:
         time_value = pygame.time.get_ticks() / 260
@@ -726,7 +771,7 @@ class RenderMixin:
         heat_ratio = self.bonfire_heat / 100
         ember_ratio = self.bonfire_ember_bed / 100
         stage = self.bonfire_stage()
-        night_glow = 1.0 if self.is_night else 0.28
+        night_glow = 0.18 + self.visual_darkness_factor() * 0.82
         pygame.draw.circle(self.screen, (34, 25, 19), fire_pos, 54)
         pygame.draw.circle(self.screen, (72, 56, 32), fire_pos, 38)
         for angle in (0.2, 1.8, 3.5):
@@ -1136,7 +1181,9 @@ class RenderMixin:
 
     def draw_fog(self, shake_offset: Vector2) -> None:
         fog_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        factor = (0.45 if self.is_night else 0.18) * float(self.runtime_settings.get("fog_strength", 1.0))
+        darkness = self.visual_darkness_factor()
+        cloud_cover = self.weather_cloud_cover()
+        factor = (0.14 + darkness * 0.33 + cloud_cover * 0.1) * float(self.runtime_settings.get("fog_strength", 1.0))
         for mote in self.fog_motes:
             pos = self.world_to_screen(mote.pos) + shake_offset
             if pos.x < -220 or pos.x > SCREEN_WIDTH + 220 or pos.y < -220 or pos.y > SCREEN_HEIGHT + 220:
@@ -1207,16 +1254,22 @@ class RenderMixin:
             self.screen.blit(void_fog, (0, 0))
 
     def draw_lighting(self) -> None:
-        night_factor = 0.7 if self.is_night else 0.08
+        darkness_factor = self.visual_darkness_factor()
+        cloud_cover = self.weather_cloud_cover()
+        daylight = self.daylight_factor()
         darkness = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        darkness.fill((*PALETTE["night"], int(170 * night_factor)))
+        darkness.fill((*PALETTE["night"], int(18 + darkness_factor * 148)))
+        if cloud_cover > 0.12:
+            cloud_tint = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            cloud_tint.fill((38, 46, 52, int((12 + cloud_cover * 44) * max(0.28, daylight))))
+            darkness.blit(cloud_tint, (0, 0))
         self.screen.blit(darkness, (0, 0))
 
         light_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         fire_pos = self.world_to_screen(self.bonfire_pos)
         glow = self.bonfire_heat * 0.68 + self.bonfire_ember_bed * 0.32
-        light_strength = 1.0 if self.is_night else 0.12
-        radius = int((76 + glow * 1.18) * (1.0 if self.is_night else 0.58))
+        light_strength = 0.08 + darkness_factor * 0.92
+        radius = int((76 + glow * 1.18) * (0.56 + darkness_factor * 0.44))
         pygame.draw.circle(
             light_surface,
             (226, 122, 76, int((10 + glow * 0.04) * light_strength)),
@@ -1233,7 +1286,7 @@ class RenderMixin:
         self.screen.blit(light_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
         vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, int(58 * night_factor)), vignette.get_rect(), border_radius=22)
+        pygame.draw.rect(vignette, (0, 0, 0, int(10 + darkness_factor * 48 + cloud_cover * 14)), vignette.get_rect(), border_radius=22)
         self.screen.blit(vignette, (0, 0))
 
     def draw_chat_panel(self) -> None:

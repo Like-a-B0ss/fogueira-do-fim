@@ -1134,8 +1134,8 @@ class Game(WorldMixin, RenderMixin):
 
     def roll_weather(self, *, initial: bool = False) -> None:
         previous_kind = self.weather_kind
-        options = ("clear", "wind", "rain")
-        weights = (0.42, 0.34, 0.24) if self.day <= 2 else (0.36, 0.34, 0.3)
+        options = ("clear", "cloudy", "wind", "rain")
+        weights = (0.28, 0.32, 0.24, 0.16) if self.day <= 2 else (0.22, 0.34, 0.24, 0.2)
         if not initial and self.random.random() < 0.34:
             next_kind = previous_kind
         else:
@@ -1146,6 +1146,10 @@ class Game(WorldMixin, RenderMixin):
             self.weather_strength = self.random.uniform(0.18, 0.58)
             self.weather_timer = self.random.uniform(30.0, 48.0)
             self.weather_label = "ceu limpo"
+        elif next_kind == "cloudy":
+            self.weather_strength = self.random.uniform(0.28, 0.88)
+            self.weather_timer = self.random.uniform(28.0, 46.0)
+            self.weather_label = "ceu nublado"
         elif next_kind == "wind":
             self.weather_strength = self.random.uniform(0.32, 0.86)
             self.weather_timer = self.random.uniform(26.0, 44.0)
@@ -1161,6 +1165,7 @@ class Game(WorldMixin, RenderMixin):
         if next_kind != previous_kind:
             message = {
                 "clear": "As nuvens abriram e a mata voltou a respirar.",
+                "cloudy": "O ceu fechou e a floresta entrou num cinza pesado.",
                 "wind": "O vento virou e as copas comecaram a gemer.",
                 "rain": "Uma chuva fina caiu sobre a clareira.",
             }[next_kind]

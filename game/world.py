@@ -41,6 +41,54 @@ class WorldMixin:
         time_value = self.time_minutes % (24 * 60)
         return time_value < DAWN_MINUTES or time_value >= DUSK_MINUTES
 
+    def daylight_factor(self) -> float:
+        """Retorna a luz do dia em valor continuo para amanhecer e entardecer suaves."""
+        time_value = self.time_minutes % (24 * 60)
+        sunrise_start = DAWN_MINUTES - 70
+        sunrise_end = DAWN_MINUTES + 65
+        sunset_start = DUSK_MINUTES - 78
+        sunset_end = DUSK_MINUTES + 72
+
+        if sunrise_end <= time_value < sunset_start:
+            return 1.0
+        if time_value < sunrise_start or time_value >= sunset_end:
+            return 0.0
+
+        def smooth_step(value: float) -> float:
+            value = clamp(value, 0.0, 1.0)
+            return value * value * (3.0 - 2.0 * value)
+
+        if sunrise_start <= time_value < sunrise_end:
+            blend = (time_value - sunrise_start) / max(1.0, sunrise_end - sunrise_start)
+            return smooth_step(blend)
+
+        blend = (time_value - sunset_start) / max(1.0, sunset_end - sunset_start)
+        return 1.0 - smooth_step(blend)
+
+    def weather_cloud_cover(self) -> float:
+        """Converte o clima atual em cobertura de nuvens para render, audio e gameplay."""
+        kind = getattr(self, "weather_kind", "clear")
+        strength = float(getattr(self, "weather_strength", 0.0))
+        if kind == "clear":
+            return clamp(0.04 + strength * 0.08, 0.04, 0.16)
+        if kind == "cloudy":
+            return clamp(0.34 + strength * 0.42, 0.34, 0.82)
+        if kind == "wind":
+            return clamp(0.16 + strength * 0.24, 0.16, 0.56)
+        if kind == "rain":
+            return clamp(0.44 + strength * 0.42, 0.44, 0.92)
+        return 0.0
+
+    def visual_darkness_factor(self) -> float:
+        """Mistura noite e cobertura de nuvens em um unico fator de penumbra."""
+        daylight = self.daylight_factor()
+        cloud_cover = self.weather_cloud_cover()
+        weather_kind = getattr(self, "weather_kind", "clear")
+        base_darkness = 1.0 - daylight
+        cloud_darkness = cloud_cover * (0.42 * daylight + 0.14)
+        weather_bias = 0.05 if weather_kind == "rain" else (0.02 if weather_kind == "wind" else 0.0)
+        return clamp(base_darkness + cloud_darkness + weather_bias, 0.0, 1.0)
+
     def random_world_pos(self, margin: float = 140) -> Vector2:
         return Vector2(
             self.random.uniform(margin, WORLD_WIDTH - margin),
@@ -1260,14 +1308,17 @@ class WorldMixin:
         weather_drag = 0.0
         if getattr(self, "weather_kind", "clear") == "rain":
             weather_drag += 0.38 * getattr(self, "weather_strength", 0.0)
+        elif getattr(self, "weather_kind", "clear") == "cloudy":
+            weather_drag += 0.05 * getattr(self, "weather_strength", 0.0)
         elif getattr(self, "weather_kind", "clear") == "wind":
             weather_drag += 0.14 * getattr(self, "weather_strength", 0.0)
 
-        ember_decay = (0.18 if self.is_night else 0.11) + weather_drag * 0.55
+        dark_factor = self.visual_darkness_factor()
+        ember_decay = lerp(0.11, 0.18, dark_factor) + weather_drag * 0.55
         self.bonfire_ember_bed = clamp(self.bonfire_ember_bed - ember_decay * dt, 0, 100)
 
-        target_heat = clamp(self.bonfire_ember_bed + (18 if self.is_night else 10), 0, 100)
-        cooling = (1.08 if self.is_night else 0.66) + weather_drag
+        target_heat = clamp(self.bonfire_ember_bed + lerp(10, 18, dark_factor), 0, 100)
+        cooling = lerp(0.66, 1.08, dark_factor) + weather_drag
         if self.bonfire_heat > target_heat:
             overshoot = 1.0 + max(0.0, self.bonfire_heat - target_heat) / 38
             self.bonfire_heat = clamp(self.bonfire_heat - cooling * overshoot * dt, 0, 100)
@@ -2037,6 +2088,8 @@ class WorldMixin:
         duration = 42.0 + distance / 120 + float(target_region.get("expedition_danger", 0.35)) * 20
         if self.weather_kind == "rain":
             duration += 8.0
+        elif self.weather_kind == "cloudy":
+            duration += 3.0
         elif self.weather_kind == "wind":
             duration += 4.0
         target_region["expedition_sites"] = max(0, int(target_region.get("expedition_sites", 1)) - 1)
@@ -2101,6 +2154,8 @@ class WorldMixin:
             danger += 0.18
         if self.weather_kind == "rain":
             danger += 0.1
+        elif self.weather_kind == "cloudy":
+            danger += 0.03
         elif self.weather_kind == "wind":
             danger += 0.05
         if expedition.get("recall_ordered", False):
@@ -2265,6 +2320,8 @@ class WorldMixin:
             distress_chance = 0.28 + float(expedition["danger"]) * 0.62
             if self.weather_kind == "rain":
                 distress_chance += 0.12
+            elif self.weather_kind == "cloudy":
+                distress_chance += 0.04
             if self.random.random() < distress_chance and not self.active_dynamic_events:
                 distress_pos = self.expedition_distress_pos(expedition)
                 self.spawn_dynamic_event(
@@ -3525,7 +3582,9 @@ class WorldMixin:
         health_factor = 1.0 - clamp(self.player.health / self.player.max_health, 0.0, 1.0)
         morale_factor = 1.0 - clamp(self.average_morale() / 100, 0.0, 1.0)
         insanity_factor = clamp(self.average_insanity() / 100, 0.0, 1.0)
-        weather_factor = getattr(self, "weather_strength", 0.0) * (0.08 if getattr(self, "weather_kind", "clear") == "rain" else 0.04)
+        weather_kind = getattr(self, "weather_kind", "clear")
+        weather_scale = 0.08 if weather_kind == "rain" else (0.05 if weather_kind == "cloudy" else 0.04)
+        weather_factor = getattr(self, "weather_strength", 0.0) * weather_scale
         base = 0.18 if self.is_night else 0.04
         tension = (
             base

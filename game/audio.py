@@ -155,8 +155,9 @@ class AudioSystem:
 
         biome = getattr(game, "current_biome_key", "camp")
         weather_kind = getattr(game, "weather_kind", "clear")
+        daylight = game.daylight_factor() if hasattr(game, "daylight_factor") else (0.0 if game.is_night else 1.0)
 
-        if game.is_night:
+        if daylight < 0.18:
             options = [("ambient_night", 0.15)]
             if biome == "swamp":
                 options.append(("ambient_swamp", 0.17))
@@ -175,6 +176,18 @@ class AudioSystem:
             elif self.rng.random() < 0.4:
                 self._play("ambient_grove", volume_scale=0.1, category="ambience")
             self.ambience_timer = self.rng.uniform(5.6, 8.8)
+            return
+        if weather_kind == "cloudy":
+            options = [("ambient_day", 0.08)]
+            if biome == "swamp":
+                options.append(("ambient_swamp", 0.1))
+            elif biome == "ruin":
+                options.append(("ambient_ruin", 0.11))
+            elif biome == "grove":
+                options.append(("ambient_grove", 0.09))
+            cue, volume = self.rng.choice(options)
+            self._play(cue, volume_scale=volume, category="ambience")
+            self.ambience_timer = self.rng.uniform(5.2, 8.2)
             return
 
         options = [("ambient_day", 0.12)]
@@ -199,6 +212,10 @@ class AudioSystem:
             if strength > 0.58 and self.rng.random() < 0.35:
                 self._play("ambient_wind", volume_scale=0.08 + strength * 0.05, category="ambience")
             self.weather_timer = self.rng.uniform(1.5, 2.5)
+        elif weather_kind == "cloudy":
+            if self.rng.random() < 0.58:
+                self._play("ambient_wind", volume_scale=0.05 + strength * 0.06, category="ambience")
+            self.weather_timer = self.rng.uniform(3.8, 6.4)
         elif weather_kind == "wind":
             self._play("ambient_wind", volume_scale=0.12 + strength * 0.14, category="ambience")
             self.weather_timer = self.rng.uniform(2.4, 4.2)
@@ -234,6 +251,8 @@ class AudioSystem:
         tension = game.audio_tension()
         if game.weather_kind == "rain":
             tension = min(1.0, tension + game.weather_strength * 0.08)
+        elif game.weather_kind == "cloudy":
+            tension = min(1.0, tension + game.weather_strength * 0.03)
         elif game.weather_kind == "wind":
             tension = min(1.0, tension + game.weather_strength * 0.04)
 
