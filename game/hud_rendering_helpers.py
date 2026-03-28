@@ -86,18 +86,18 @@ def draw_chat_panel(game) -> None:
 
 def draw_hud(game) -> None:
     """Desenha os paineis centrais da HUD do gameplay."""
-    ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 260, 16, 520, 64)
+    ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 280, 16, 560, 74)
     game.draw_panel(ribbon)
     ribbon_title_text = game.fit_text_to_width(
         game.body_font,
-        f"{game.weather_label}  |  tensao {game.tension_label()}  |  zumbis {len(game.zombies)}",
+        f"{game.weather_label}  |  {game.daylight_phase_label()}  |  tensao {game.tension_label()}  |  zumbis {len(game.zombies)}",
         ribbon.width - 36,
     )
     ribbon_sub_text = game.fit_text_to_width(
         game.ui_small_font,
-        "Noite de horda ativa"
+        f"{game.weather_mood_label()}  |  Noite de horda ativa"
         if getattr(game, "horde_active", False)
-        else (game.expedition_status_text(short=True) or "Clareira em observacao constante"),
+        else (game.expedition_status_text(short=True) or f"{game.current_region_label} sob {game.weather_mood_label()}"),
         ribbon.width - 44,
     )
     ribbon_title = game.body_font.render(ribbon_title_text, True, PALETTE["text"])
@@ -106,8 +106,8 @@ def draw_hud(game) -> None:
         True,
         PALETTE["danger_soft"] if getattr(game, "horde_active", False) else PALETTE["muted"],
     )
-    game.screen.blit(ribbon_title, ribbon_title.get_rect(center=(ribbon.centerx, ribbon.y + 20)))
-    game.screen.blit(ribbon_sub, ribbon_sub.get_rect(center=(ribbon.centerx, ribbon.y + 44)))
+    game.screen.blit(ribbon_title, ribbon_title.get_rect(center=(ribbon.centerx, ribbon.y + 23)))
+    game.screen.blit(ribbon_sub, ribbon_sub.get_rect(center=(ribbon.centerx, ribbon.y + 50)))
 
     panel = pygame.Rect(18, 16, 358, 244)
     game.draw_panel(panel)
@@ -138,10 +138,19 @@ def draw_hud(game) -> None:
         panel.width - 36,
         line_gap=0,
     ) + 2
-    game.draw_wrapped_text(
+    info_y = game.draw_wrapped_text(
         game.ui_small_font,
         f"Base {game.camp_level + 1}  |  fase {game.economy_phase_label()}  |  camas {len(game.survivors)}/{game.total_bed_capacity()}  |  fogo {game.bonfire_stage()}",
         PALETTE["muted"],
+        panel.x + 18,
+        info_y,
+        panel.width - 36,
+        line_gap=0,
+    ) + 2
+    game.draw_wrapped_text(
+        game.ui_small_font,
+        f"Luz {game.daylight_phase_label()}  |  tempo {game.weather_mood_label()}",
+        PALETTE["accent_soft"] if game.daylight_factor() > 0.3 else PALETTE["muted"],
         panel.x + 18,
         info_y,
         panel.width - 36,
@@ -283,7 +292,7 @@ def draw_hud(game) -> None:
         game.event_message if game.event_timer > 0 else "Explore os sinais do mapa, mantenha a fogueira viva e nao deixe a sociedade quebrar.",
         "Qualquer toque acorda o chefe."
         if game.player_sleeping
-        else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "F5 salva, F9 carrega. O radio embaixo aceita ordens e perguntas."),
+        else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "F5 salva, F9 carrega. Chegue perto de um morador e aperte E para conversar."),
     )
     line_y = info_panel.y + 14
     for index, line in enumerate(controls):
@@ -307,12 +316,13 @@ def draw_panel(game, rect: pygame.Rect) -> None:
     """Desenha um painel base reutilizado por toda a interface."""
     panel_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
     contrast = float(game.runtime_settings.get("ui_contrast", 1.0))
-    bg_alpha = int(clamp(208 + (contrast - 1.0) * 60, 150, 246))
-    line_alpha = int(clamp(118 + (contrast - 1.0) * 80, 80, 220))
-    gloss_alpha = int(clamp(16 + (contrast - 1.0) * 20, 8, 40))
+    bg_alpha = int(clamp(220 + (contrast - 1.0) * 56, 172, 250))
+    line_alpha = int(clamp(126 + (contrast - 1.0) * 84, 92, 224))
+    gloss_alpha = int(clamp(12 + (contrast - 1.0) * 16, 6, 32))
     pygame.draw.rect(panel_surface, (*PALETTE["ui_bg"], bg_alpha), panel_surface.get_rect(), border_radius=18)
     pygame.draw.rect(panel_surface, (*PALETTE["ui_line"], line_alpha), panel_surface.get_rect(), 1, border_radius=18)
     pygame.draw.rect(panel_surface, (255, 255, 255, gloss_alpha), pygame.Rect(1, 1, rect.width - 2, 20), border_radius=18)
+    pygame.draw.rect(panel_surface, (0, 0, 0, 20), pygame.Rect(2, rect.height - 18, rect.width - 4, 14), border_radius=16)
     game.screen.blit(panel_surface, rect.topleft)
 
 
@@ -327,6 +337,7 @@ def draw_resource_meter(
 ) -> None:
     rect = pygame.Rect(x, y, width, 36)
     pygame.draw.rect(game.screen, PALETTE["ui_panel"], rect, border_radius=12)
+    pygame.draw.rect(game.screen, (18, 22, 24), pygame.Rect(x + 1, y + 1, width - 2, 34), 1, border_radius=12)
     pygame.draw.rect(game.screen, color, pygame.Rect(x + 8, y + 8, 20, 20), border_radius=7)
     label_surface = game.small_font.render(label, True, PALETTE["muted"])
     value_surface = game.body_font.render(str(value), True, PALETTE["text"])
@@ -348,6 +359,7 @@ def draw_resource_bar(
     label_surface = game.small_font.render(label, True, PALETTE["muted"])
     game.screen.blit(label_surface, (x, y - 18))
     pygame.draw.rect(game.screen, PALETTE["ui_panel"], (x, y, width, height), border_radius=8)
+    pygame.draw.rect(game.screen, (18, 22, 24), (x, y, width, height), 1, border_radius=8)
     pygame.draw.rect(game.screen, color, (x, y, int(width * ratio), height), border_radius=8)
     pygame.draw.rect(game.screen, PALETTE["ui_line"], (x, y, width, height), 1, border_radius=8)
 

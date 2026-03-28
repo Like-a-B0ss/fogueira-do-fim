@@ -89,6 +89,35 @@ class WorldMixin:
         weather_bias = 0.05 if weather_kind == "rain" else (0.02 if weather_kind == "wind" else 0.0)
         return clamp(base_darkness + cloud_darkness + weather_bias, 0.0, 1.0)
 
+    def daylight_phase_label(self) -> str:
+        """Resume a faixa do dia em um texto curto para a HUD."""
+        time_value = self.time_minutes % (24 * 60)
+        if DAWN_MINUTES - 65 <= time_value < DAWN_MINUTES + 70:
+            return "amanhecer"
+        if DUSK_MINUTES - 85 <= time_value < DUSK_MINUTES + 75:
+            return "entardecer"
+        if time_value < 4 * 60 or time_value >= 22 * 60:
+            return "noite funda"
+        if self.daylight_factor() < 0.18:
+            return "noite"
+        if time_value < 12 * 60 + 30:
+            return "manha"
+        return "tarde"
+
+    def weather_mood_label(self) -> str:
+        """Traduz a combinacao de clima e intensidade para uma leitura curta."""
+        kind = getattr(self, "weather_kind", "clear")
+        strength = float(getattr(self, "weather_strength", 0.0))
+        if kind == "clear":
+            return "ceu aberto" if strength < 0.4 else "claridade limpa"
+        if kind == "cloudy":
+            return "nublado leve" if strength < 0.56 else "nublado pesado"
+        if kind == "wind":
+            return "vento leve" if strength < 0.56 else "vento forte"
+        if kind == "rain":
+            return "garoa fria" if strength < 0.6 else "chuva fechada"
+        return "tempo instavel"
+
     def random_world_pos(self, margin: float = 140) -> Vector2:
         return Vector2(
             self.random.uniform(margin, WORLD_WIDTH - margin),

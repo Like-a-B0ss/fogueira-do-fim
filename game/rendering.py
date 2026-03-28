@@ -236,7 +236,7 @@ class RenderMixin:
         tick = pygame.time.get_ticks() / 1000.0
         if cloud_cover > 0.12:
             cloud_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            sky_alpha = int((12 + cloud_cover * 44 + darkness * 16) * (0.8 if weather_kind == "clear" else 1.0))
+            sky_alpha = int((8 + cloud_cover * 28 + darkness * 10) * (0.84 if weather_kind == "clear" else 1.0))
             for index in range(6):
                 width = 260 + index * 34 + int(cloud_cover * 90)
                 height = 92 + index * 12 + int(cloud_cover * 28)
@@ -246,7 +246,7 @@ class RenderMixin:
                 ellipse = pygame.Rect(int(x), int(y), width, height)
                 pygame.draw.ellipse(cloud_surface, (56, 66, 74, sky_alpha), ellipse)
                 inner = ellipse.inflate(-int(width * 0.16), -int(height * 0.24))
-                pygame.draw.ellipse(cloud_surface, (70, 82, 90, max(10, sky_alpha - 8)), inner)
+                pygame.draw.ellipse(cloud_surface, (70, 82, 90, max(8, sky_alpha - 10)), inner)
             self.screen.blit(cloud_surface, (0, 0))
 
         if weather_kind == "rain":
@@ -1183,7 +1183,7 @@ class RenderMixin:
         fog_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         darkness = self.visual_darkness_factor()
         cloud_cover = self.weather_cloud_cover()
-        factor = (0.14 + darkness * 0.33 + cloud_cover * 0.1) * float(self.runtime_settings.get("fog_strength", 1.0))
+        factor = (0.09 + darkness * 0.24 + cloud_cover * 0.08) * float(self.runtime_settings.get("fog_strength", 1.0))
         for mote in self.fog_motes:
             pos = self.world_to_screen(mote.pos) + shake_offset
             if pos.x < -220 or pos.x > SCREEN_WIDTH + 220 or pos.y < -220 or pos.y > SCREEN_HEIGHT + 220:
@@ -1258,10 +1258,10 @@ class RenderMixin:
         cloud_cover = self.weather_cloud_cover()
         daylight = self.daylight_factor()
         darkness = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        darkness.fill((*PALETTE["night"], int(18 + darkness_factor * 148)))
+        darkness.fill((*PALETTE["night"], int(12 + darkness_factor * 126)))
         if cloud_cover > 0.12:
             cloud_tint = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            cloud_tint.fill((38, 46, 52, int((12 + cloud_cover * 44) * max(0.28, daylight))))
+            cloud_tint.fill((38, 46, 52, int((8 + cloud_cover * 28) * max(0.22, daylight))))
             darkness.blit(cloud_tint, (0, 0))
         self.screen.blit(darkness, (0, 0))
 
@@ -1286,7 +1286,7 @@ class RenderMixin:
         self.screen.blit(light_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
         vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, int(10 + darkness_factor * 48 + cloud_cover * 14)), vignette.get_rect(), border_radius=22)
+        pygame.draw.rect(vignette, (0, 0, 0, int(6 + darkness_factor * 36 + cloud_cover * 10)), vignette.get_rect(), border_radius=22)
         self.screen.blit(vignette, (0, 0))
 
     def draw_chat_panel(self) -> None:
@@ -1330,7 +1330,7 @@ class RenderMixin:
             pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], rect, 1, border_radius=10)
             label = self.body_font.render(f"{index}. {recipe['label']}", True, PALETTE["text"])
             cost = self.small_font.render(
-                f"{wood_cost} madeira  |  {scrap_cost} sucata  |  {recipe['hint']}",
+                f"{wood_cost} tabuas  |  {scrap_cost} sucata  |  {recipe['hint']}",
                 True,
                 PALETTE["muted"] if affordable else PALETTE["danger_soft"],
             )

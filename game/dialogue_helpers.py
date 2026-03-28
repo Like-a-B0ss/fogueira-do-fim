@@ -84,7 +84,7 @@ def directive_label(_game, directive: str) -> str:
     return {
         "rest": "descanso",
         "guard": "vigia",
-        "wood": "madeira",
+        "wood": "toras",
         "food": "comida",
         "repair": "barricadas",
         "cook": "cozinha",
@@ -281,7 +281,7 @@ def try_assign_directive(game, survivor: object, directive: str, *, duration: fl
     response = {
         "rest": "Certo. Vou baixar a marcha.",
         "guard": "To indo pra linha.",
-        "wood": "Vou puxar madeira.",
+        "wood": "Vou buscar toras.",
         "food": "Vou atras de comida.",
         "repair": "Ja to fechando a cerca.",
         "cook": "Panela vai girar.",
@@ -342,14 +342,14 @@ def random_chat_reply(game, player_text: str) -> None:
 
 
 def submit_chat_message(game, text: str) -> None:
-    """Mantido como utilitario para testes e para futuros eventos de radio."""
+    """Mantido como utilitario legado para testes e eventos futuros do acampamento."""
     clean_text = " ".join(text.strip().split())
     if not clean_text:
         return
     add_chat_message(game, "chefe", clean_text, PALETTE["text"], source="player")
     normalized = normalize_chat_text(game, clean_text)
     if any(word in normalized for word in ("ajuda", "comando", "comandos", "ordens")):
-        add_chat_message(game, "radio", "Exemplos: 'todos vigia', 'todos madeira', 'ravi descansa', 'foco moral', 'como estamos?'.", PALETTE["accent_soft"], source="system")
+        add_chat_message(game, "radio", "O historico segue vivo aqui, mas as ordens principais agora saem na conversa direta com cada morador.", PALETTE["accent_soft"], source="system")
         game.audio.play_ui("focus")
         return
     if "como estamos" in normalized or "status" in normalized or "situacao" in normalized or "relatorio" in normalized:
