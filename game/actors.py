@@ -146,7 +146,7 @@ class Player(Actor):
             if amount > 0:
                 stored = game.add_resource_bundle({"logs": amount})
                 game.spawn_floating_text(game.bundle_summary(stored or {"logs": amount}), tree_pos, PALETTE["accent_soft"])
-                game.set_event_message("As arvores agora viram toras. Sem serraria, a madeira boa de construcao demora mais a chegar.", duration=4.8)
+                game.set_event_message("As arvores agora viram toras. Sem serraria, a oficina corta tabuas devagar para segurar o comeco.", duration=4.8)
                 game.impact_burst(tree_pos, PALETTE["accent_soft"], radius=13, shake=1.0, ember_count=5, smoky=True)
                 game.audio.play_impact("wood")
             else:
@@ -265,6 +265,20 @@ class Player(Actor):
                 return
 
         if self.distance_to(game.workshop_pos) < 108:
+            if hardline and game.can_expand_camp():
+                if game.expand_camp():
+                    game.audio.play_interact("repair")
+                return
+            if game.can_use_workshop_saw():
+                stored = game.cut_planks_at_workshop()
+                if stored:
+                    game.spawn_floating_text(game.bundle_summary(stored), game.workshop_pos, PALETTE["accent_soft"])
+                    game.set_event_message("A oficina cortou tabuas devagar. A serraria ainda segue sendo a versao eficiente.", duration=4.8)
+                    game.impact_burst(game.workshop_pos, PALETTE["accent_soft"], radius=11, shake=0.45, ember_count=3, smoky=True)
+                    game.audio.play_interact("repair")
+                    return
+                game.spawn_floating_text("estoque cheio", game.workshop_pos, PALETTE["muted"])
+                return
             if game.expand_camp():
                 game.audio.play_interact("repair")
                 return
@@ -574,6 +588,20 @@ class Survivor(Actor):
             game.propose_survivor_build_request(self)
             build_request = game.pending_build_request_for_survivor(self)
         assigned_building = game.building_by_id(self.assigned_building_id)
+        focus_override = game.survivor_focus_override(self)
+        if focus_override:
+            override_state, override_ref = focus_override
+            if isinstance(override_ref, Building):
+                self.start_state(override_state, override_ref.pos, override_ref)
+            elif isinstance(override_ref, Barricade):
+                self.start_state(override_state, override_ref.pos, override_ref)
+            elif isinstance(override_ref, Vector2):
+                self.start_state(override_state, override_ref)
+            elif override_ref is not None and hasattr(override_ref, "pos"):
+                self.start_state(override_state, override_ref.pos, override_ref)
+            else:
+                self.start_state(override_state, self.pos)
+            return
         if assigned_building and self.assigned_building_kind == "horta" and not game.is_night and self.energy > 28:
             self.start_state("garden", assigned_building.pos, assigned_building)
             return
@@ -588,6 +616,9 @@ class Survivor(Actor):
             return
         if assigned_building and self.assigned_building_kind == "enfermaria" and (game.most_injured_actor() or game.herbs > 0) and self.energy > 24:
             self.start_state("clinic", assigned_building.pos, assigned_building)
+            return
+        if not game.buildings_of_kind("serraria") and self.role in {"artesa", "lenhador"} and game.logs > 0 and self.energy > 28:
+            self.start_state("roughcut", game.workshop_pos)
             return
         if game.available_fuel() > 0 and (
             (game.is_night and game.bonfire_heat < 38)
@@ -664,6 +695,7 @@ class Survivor(Actor):
             "repair": 0.7 if game.has_damaged_barricade() and game.wood > 0 else -999,
             "cook": 0.6 if game.food > 0 and game.available_fuel() > 0 else -999,
             "sawmill": 0.7 if game.logs >= 2 else -999,
+            "roughcut": 0.55 if not game.buildings_of_kind("serraria") and game.logs > 0 else -999,
             "clinic": 0.6 if game.most_injured_actor() and game.has_medical_supplies() else -999,
             "tend_fire": 0.5 if game.available_fuel() > 0 else -999,
             "socialize": 0.5,
@@ -674,6 +706,7 @@ class Survivor(Actor):
             options["gather_wood"] += 2.6
         if game.wood < 14:
             options["sawmill"] += 2.5
+            options["roughcut"] += 2.2
         if game.food < 14:
             options["forage"] += 2.4
         if game.meals < 8:
@@ -735,6 +768,8 @@ class Survivor(Actor):
         if self.has_trait("teimoso"):
             options["repair"] += 1.3
             options["gather_wood"] += 0.9
+        if self.role in {"artesa", "lenhador"} and not game.buildings_of_kind("serraria"):
+            options["roughcut"] += 1.6
 
         preferred = {
             "lenhador": "gather_wood",
@@ -777,6 +812,9 @@ class Survivor(Actor):
             if sawmill:
                 self.start_state("sawmill", sawmill.pos, sawmill)
                 return
+        if choice == "roughcut":
+            self.start_state("roughcut", game.workshop_pos)
+            return
         if choice == "clinic":
             infirmary = game.nearest_building_of_kind("enfermaria", self.pos)
             if infirmary:
@@ -804,6 +842,7 @@ class Survivor(Actor):
             "cookhouse": "na cozinha",
             "socialize": "subindo a moral",
             "tend_fire": "cuidando do fogo",
+            "roughcut": "cortando tabuas",
             "guard": "de vigia",
             "watchtower": "na torre",
             "garden": "cuidando da horta",
@@ -1023,6 +1062,21 @@ class Survivor(Actor):
                     game.audio.play_interact("repair")
                     self.task_timer = 0.0
                     self.decision_timer = 1.2
+            return
+
+        if self.state == "roughcut":
+            if not game.can_use_workshop_saw():
+                self.decision_timer = 0
+                return
+            if self.move_toward(game.workshop_pos, dt):
+                self.task_timer += dt
+                if self.task_timer >= 4.8:
+                    stored = game.cut_planks_at_workshop(role=self.role)
+                    if stored:
+                        game.spawn_floating_text(game.bundle_summary(stored), game.workshop_pos, PALETTE["accent_soft"])
+                        game.audio.play_interact("repair")
+                    self.task_timer = 0.0
+                    self.decision_timer = 1.0
             return
 
         if self.state == "sawmill":

@@ -507,6 +507,8 @@ def current_objectives(game) -> list[str]:
         directives.append("Circule pelo campo e sustente a presenca do lider.")
     if game.logs < 10:
         directives.append("Derrube arvores para encher o estoque de toras antes do entardecer.")
+    elif not game.buildings_of_kind("serraria") and game.logs > 0:
+        directives.append("Use a oficina para cortar algumas tabuas e destravar a serraria.")
     elif game.wood < 12:
         directives.append("Passe toras pela serraria para levantar tabuas de construcao.")
     elif current_region and current_region.get("boss_blueprint") and not current_region.get("boss_defeated"):
@@ -521,7 +523,7 @@ def current_objectives(game) -> list[str]:
     elif game.spare_beds() > 0 and len(game.survivors) < game.total_bed_capacity():
         directives.append("Mantenha moral e defesa altas para atrair novos moradores.")
     elif not game.buildings_of_kind("serraria"):
-        directives.append("Abra o menu com B e erga uma serraria para transformar toras em tabuas.")
+        directives.append("Corte tabuas na oficina e depois erga uma serraria para ganhar escala.")
     elif not game.buildings_of_kind("cozinha"):
         directives.append("Monte uma cozinha para converter insumos em refeicoes de verdade.")
     elif not game.buildings_of_kind("enfermaria"):

@@ -943,11 +943,16 @@ class WorldMixin:
                 return barricade.pos, f"E melhorar spikes ({wood_cost} tabuas, {scrap_cost} sucata)"
 
         if player.distance_to(self.workshop_pos) < 108:
+            if self.can_use_workshop_saw():
+                if self.can_expand_camp():
+                    return self.workshop_pos, "E cortar tabuas  |  Q ampliar acampamento"
+                return self.workshop_pos, "E cortar tabuas na oficina"
             if self.can_expand_camp():
                 return self.workshop_pos, "E ampliar acampamento"
             if self.camp_level < self.max_camp_level:
                 log_cost, scrap_cost = self.expansion_cost()
                 return self.workshop_pos, f"Precisa {log_cost} toras e {scrap_cost} sucata"
+            return self.workshop_pos, "Oficina livre"
 
         sleep_slot = self.nearest_sleep_slot(player.pos)
         if sleep_slot and not self.player_sleeping:
@@ -1129,6 +1134,30 @@ class WorldMixin:
             "late": 8,
         }[self.economy_phase_key()]
         return 18 + self.building_count("anexo") * 10 + phase_bonus
+
+    def can_use_workshop_saw(self) -> bool:
+        """Libera a oficina inicial para cortar toras em tabuas antes da serraria."""
+        return not self.buildings_of_kind("serraria") and self.logs > 0
+
+    def workshop_plank_bundle(self, role: str | None = None) -> dict[str, int]:
+        """A oficina e lenta: serve para destravar o comeco, nao para substituir a serraria."""
+        produced = 1
+        if role in {"artesa", "lenhador"} and self.random.random() < 0.2:
+            produced += 1
+        return {"wood": produced}
+
+    def cut_planks_at_workshop(self, *, role: str | None = None) -> dict[str, int] | None:
+        """Converte uma tora em poucas tabuas, sem a eficiencia de uma serraria real."""
+        if not self.can_use_workshop_saw():
+            return None
+        if not self.consume_resource("logs", 1):
+            return None
+        bundle = self.workshop_plank_bundle(role)
+        stored = self.add_resource_bundle(bundle)
+        if not stored:
+            self.logs += 1
+            return None
+        return stored
 
     def stockpile_capacity(self, resource: str) -> int:
         base = {
@@ -3561,6 +3590,38 @@ class WorldMixin:
             ]
             if perimeter:
                 return min(perimeter, key=lambda zombie: zombie.pos.distance_to(survivor.pos))
+        return None
+
+    def survivor_focus_override(self, survivor: Survivor) -> tuple[str, object | Vector2 | None] | None:
+        """Deixa o foco do chefe puxar a rotina antes do trabalho especializado quando fizer sentido."""
+        assigned_building = self.building_by_id(getattr(survivor, "assigned_building_id", None))
+        if self.focus_mode == "fortify":
+            defense_target = self.closest_defense_target(survivor)
+            if assigned_building and getattr(survivor, "assigned_building_kind", None) == "torre" and survivor.energy > 18:
+                return ("watchtower", assigned_building)
+            if defense_target and survivor.energy > 22:
+                return ("guard", survivor.guard_pos)
+            if self.has_damaged_barricade() and self.wood > 0 and survivor.energy > 24:
+                barricade = self.weakest_barricade()
+                if barricade:
+                    return ("repair", barricade)
+        elif self.focus_mode == "morale":
+            if self.available_fuel() > 0 and (self.bonfire_heat < 60 or self.bonfire_ember_bed < 28):
+                return ("tend_fire", self.bonfire_pos)
+            if self.food >= 2 and self.available_fuel() > 0 and survivor.energy > 24:
+                kitchen = assigned_building if assigned_building and getattr(survivor, "assigned_building_kind", None) == "cozinha" else None
+                if kitchen:
+                    return ("cookhouse", kitchen)
+                return ("cook", self.kitchen_pos)
+            if self.average_morale() < 64 and survivor.energy > 24:
+                return ("socialize", self.bonfire_pos)
+        elif self.focus_mode == "supply":
+            if assigned_building and getattr(survivor, "assigned_building_kind", None) == "serraria" and self.logs >= 2 and survivor.energy > 24:
+                return ("sawmill", assigned_building)
+            if assigned_building and getattr(survivor, "assigned_building_kind", None) == "horta" and not self.is_night and survivor.energy > 24:
+                return ("garden", assigned_building)
+            if not self.buildings_of_kind("serraria") and survivor.role in {"artesa", "lenhador"} and self.logs > 0 and survivor.energy > 24:
+                return ("roughcut", self.workshop_pos)
         return None
 
     def survivor_should_seek_shelter(self, survivor: Survivor, zombie: Zombie) -> bool:
