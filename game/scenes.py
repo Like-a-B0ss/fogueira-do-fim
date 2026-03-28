@@ -6,6 +6,7 @@ from enum import Enum
 
 class SceneId(str, Enum):
     TITLE = "title"
+    TIPS = "tips"
     GAMEPLAY = "playing"
     GAME_OVER = "game_over"
 
@@ -19,6 +20,7 @@ class SceneDefinition:
 
 SCENE_LIBRARY = {
     SceneId.TITLE: SceneDefinition(SceneId.TITLE, allows_world_update=False, overlay="title"),
+    SceneId.TIPS: SceneDefinition(SceneId.TIPS, allows_world_update=False, overlay="tips"),
     SceneId.GAMEPLAY: SceneDefinition(SceneId.GAMEPLAY, allows_world_update=True, overlay=None),
     SceneId.GAME_OVER: SceneDefinition(SceneId.GAME_OVER, allows_world_update=False, overlay="game_over"),
 }
@@ -47,6 +49,9 @@ class SceneManager:
 
     def is_gameplay(self) -> bool:
         return self.current.scene_id is SceneId.GAMEPLAY
+
+    def is_tips(self) -> bool:
+        return self.current.scene_id is SceneId.TIPS
 
     def is_title(self) -> bool:
         return self.current.scene_id is SceneId.TITLE

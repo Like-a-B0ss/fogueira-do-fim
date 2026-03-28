@@ -23,6 +23,49 @@ from .config import (
 
 
 class RenderMixin:
+    def wrap_text_lines(self, font: pygame.font.Font, text: str, max_width: int) -> list[str]:
+        words = text.split()
+        if not words:
+            return [""]
+        lines: list[str] = []
+        current = words[0]
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+        return lines
+
+    def fit_text_to_width(self, font: pygame.font.Font, text: str, max_width: int) -> str:
+        if font.size(text)[0] <= max_width:
+            return text
+        ellipsis = "..."
+        clipped = text
+        while clipped and font.size(clipped + ellipsis)[0] > max_width:
+            clipped = clipped[:-1]
+        return (clipped + ellipsis) if clipped else ellipsis
+
+    def draw_wrapped_text(
+        self,
+        font: pygame.font.Font,
+        text: str,
+        color: tuple[int, int, int],
+        x: int,
+        y: int,
+        max_width: int,
+        *,
+        line_gap: int = 6,
+    ) -> int:
+        lines = self.wrap_text_lines(font, text, max_width)
+        line_height = font.get_linesize()
+        for index, line in enumerate(lines):
+            rendered = font.render(line, True, color)
+            self.screen.blit(rendered, (x, y + index * (line_height + line_gap)))
+        return y + len(lines) * line_height + max(0, len(lines) - 1) * line_gap
+
     def draw(self) -> None:
         shake_strength = self.screen_shake * float(self.runtime_settings.get("screen_shake_scale", 1.0))
         shake_offset = (
@@ -51,13 +94,16 @@ class RenderMixin:
         self.draw_fog(shake_offset)
         self.draw_lighting()
         self.draw_map_fog(shake_offset)
-        self.draw_hud()
-        if self.build_menu_open:
+        if self.scenes.is_gameplay() or self.scenes.is_game_over():
+            self.draw_hud()
+        if self.build_menu_open and self.scenes.is_gameplay():
             self.draw_build_preview(shake_offset)
             self.draw_build_menu()
 
         if self.scenes.is_title():
             self.draw_title_screen()
+        elif self.scenes.is_tips():
+            self.draw_tips_screen()
         elif self.scenes.is_game_over():
             self.draw_game_over()
 
@@ -1098,52 +1144,67 @@ class RenderMixin:
         self.screen.blit(vignette, (0, 0))
 
     def draw_hud(self) -> None:
-        ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 230, 16, 460, 58)
+        ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 260, 16, 520, 64)
         self.draw_panel(ribbon)
-        ribbon_title = self.body_font.render(
+        ribbon_title_text = self.fit_text_to_width(
+            self.body_font,
             f"{self.weather_label}  |  tensao {self.tension_label()}  |  zumbis {len(self.zombies)}",
-            True,
-            PALETTE["text"],
+            ribbon.width - 36,
         )
-        ribbon_sub = self.small_font.render(
+        ribbon_sub_text = self.fit_text_to_width(
+            self.ui_small_font,
             "Noite de horda ativa"
             if getattr(self, "horde_active", False)
             else (self.expedition_status_text(short=True) or "Clareira em observacao constante"),
+            ribbon.width - 44,
+        )
+        ribbon_title = self.body_font.render(ribbon_title_text, True, PALETTE["text"])
+        ribbon_sub = self.ui_small_font.render(
+            ribbon_sub_text,
             True,
             PALETTE["danger_soft"] if getattr(self, "horde_active", False) else PALETTE["muted"],
         )
         self.screen.blit(ribbon_title, ribbon_title.get_rect(center=(ribbon.centerx, ribbon.y + 20)))
-        self.screen.blit(ribbon_sub, ribbon_sub.get_rect(center=(ribbon.centerx, ribbon.y + 40)))
+        self.screen.blit(ribbon_sub, ribbon_sub.get_rect(center=(ribbon.centerx, ribbon.y + 44)))
 
         panel = pygame.Rect(18, 16, 358, 244)
         self.draw_panel(panel)
         title = self.heading_font.render("Acampamento da Clareira", True, PALETTE["text"])
         self.screen.blit(title, (panel.x + 18, panel.y + 14))
 
-        subtitle = self.small_font.render(
+        subtitle = self.ui_small_font.render(
             f"Dia {self.day}  |  {format_clock(self.time_minutes)}  |  foco {FOCUS_LABELS[self.focus_mode]}",
             True,
             PALETTE["muted"],
         )
         self.screen.blit(subtitle, (panel.x + 18, panel.y + 44))
-        region_line = self.small_font.render(
+        info_y = self.draw_wrapped_text(
+            self.ui_small_font,
             f"Regiao atual: {self.current_region_label}",
-            True,
             PALETTE["accent_soft"],
-        )
-        self.screen.blit(region_line, (panel.x + 18, panel.y + 62))
-        climate_line = self.small_font.render(
+            panel.x + 18,
+            panel.y + 62,
+            panel.width - 36,
+            line_gap=0,
+        ) + 2
+        info_y = self.draw_wrapped_text(
+            self.ui_small_font,
             f"Bioma {self.current_biome_label}  |  boss {self.current_zone_boss_label}",
-            True,
             PALETTE["muted"],
-        )
-        self.screen.blit(climate_line, (panel.x + 18, panel.y + 80))
-        camp_line = self.small_font.render(
+            panel.x + 18,
+            info_y,
+            panel.width - 36,
+            line_gap=0,
+        ) + 2
+        self.draw_wrapped_text(
+            self.ui_small_font,
             f"Base {self.camp_level + 1}  |  fase {self.economy_phase_label()}  |  camas {len(self.survivors)}/{self.total_bed_capacity()}  |  fogo {self.bonfire_stage()}",
-            True,
             PALETTE["muted"],
+            panel.x + 18,
+            info_y,
+            panel.width - 36,
+            line_gap=0,
         )
-        self.screen.blit(camp_line, (panel.x + 18, panel.y + 98))
 
         self.draw_resource_meter(panel.x + 18, panel.y + 126, 72, self.logs, "Toras", (170, 130, 78))
         self.draw_resource_meter(panel.x + 102, panel.y + 126, 72, self.wood, "Tabuas", PALETTE["accent_soft"])
@@ -1155,54 +1216,121 @@ class RenderMixin:
         self.draw_resource_bar(panel.x + 18, panel.y + 232, 152, 14, self.bonfire_heat / 100, "Chama", PALETTE["light"])
         self.draw_resource_bar(panel.x + 190, panel.y + 232, 152, 14, self.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
 
-        player_panel = pygame.Rect(18, 278, 358, 136)
+        player_panel = pygame.Rect(18, 278, 358, 146)
         self.draw_panel(player_panel)
         heading = self.heading_font.render("Chefe do Acampamento", True, PALETTE["text"])
         self.screen.blit(heading, (player_panel.x + 18, player_panel.y + 14))
-        status_line = self.small_font.render(
+        self.draw_wrapped_text(
+            self.ui_small_font,
             "Dormindo e acelerando o tempo" if self.player_sleeping else "E perto da barraca para dormir",
-            True,
             PALETTE["morale"] if self.player_sleeping else PALETTE["muted"],
+            player_panel.x + 18,
+            player_panel.y + 42,
+            player_panel.width - 36,
+            line_gap=0,
         )
-        self.screen.blit(status_line, (player_panel.x + 18, player_panel.y + 34))
-        self.draw_resource_bar(player_panel.x + 18, player_panel.y + 58, 320, 15, self.player.health / self.player.max_health, "Vida", PALETTE["danger_soft"])
-        self.draw_resource_bar(player_panel.x + 18, player_panel.y + 92, 320, 15, self.player.stamina / self.player.max_stamina, "Folego", PALETTE["energy"])
+        self.draw_resource_bar(player_panel.x + 18, player_panel.y + 72, 320, 15, self.player.health / self.player.max_health, "Vida", PALETTE["danger_soft"])
+        self.draw_resource_bar(player_panel.x + 18, player_panel.y + 108, 320, 15, self.player.stamina / self.player.max_stamina, "Folego", PALETTE["energy"])
 
-        society_panel = pygame.Rect(SCREEN_WIDTH - 346, 16, 328, 394)
+        society_layout = self.society_panel_layout()
+        society_panel = society_layout["panel"]
         self.draw_panel(society_panel)
+        mouse_pos = self.input_state.mouse_screen
+        header = society_layout["header"]
+        toggle = society_layout["toggle"]
+        header_hover = header.collidepoint(mouse_pos)
+        pygame.draw.rect(
+            self.screen,
+            (46, 60, 64) if header_hover else PALETTE["ui_panel"],
+            header,
+            border_radius=14,
+        )
+        pygame.draw.rect(
+            self.screen,
+            PALETTE["accent_soft"] if header_hover else PALETTE["ui_line"],
+            header,
+            1,
+            border_radius=14,
+        )
+        pygame.draw.rect(
+            self.screen,
+            (72, 88, 92) if toggle.collidepoint(mouse_pos) else (54, 68, 72),
+            toggle,
+            border_radius=7,
+        )
+        pygame.draw.rect(self.screen, PALETTE["ui_line"], toggle, 1, border_radius=7)
+        toggle_label = "+" if self.society_panel_collapsed else "-"
+        toggle_text = self.body_font.render(toggle_label, True, PALETTE["text"])
+        self.screen.blit(toggle_text, toggle_text.get_rect(center=toggle.center))
+
         society_title = self.heading_font.render("Sociedade do Campo", True, PALETTE["text"])
         self.screen.blit(society_title, (society_panel.x + 18, society_panel.y + 14))
-        self.screen.blit(
-            self.small_font.render(
-                f"moral {self.average_morale():.0f}  |  insanidade {self.average_insanity():.0f}  |  feudos {self.feud_count()}  |  {self.faction_label(self.strongest_faction()[0])} {self.faction_standing_label(self.strongest_faction()[0])}",
-                True,
-                PALETTE["muted"],
-            ),
-            (society_panel.x + 18, society_panel.y + 44),
-        )
-
-        card_y = society_panel.y + 74
-        visible_survivors = self.survivors[:7]
-        for survivor in visible_survivors:
-            self.draw_survivor_card(society_panel.x + 16, card_y, 296, 38, survivor)
-            card_y += 46
-        if len(self.survivors) > len(visible_survivors):
-            extra = self.small_font.render(
-                f"+{len(self.survivors) - len(visible_survivors)} moradores fora da lista",
-                True,
-                PALETTE["muted"],
+        strongest_faction = self.strongest_faction()[0]
+        if self.society_panel_collapsed:
+            compact = self.fit_text_to_width(
+                self.ui_small_font,
+                f"{len(self.survivors)} moradores  |  moral {self.average_morale():.0f}  |  ins {self.average_insanity():.0f}",
+                society_panel.width - 64,
             )
-            self.screen.blit(extra, (society_panel.x + 18, society_panel.bottom - 26))
+            compact_surface = self.ui_small_font.render(compact, True, PALETTE["muted"])
+            self.screen.blit(compact_surface, (society_panel.x + 18, society_panel.y + 48))
+        else:
+            self.draw_wrapped_text(
+                self.ui_small_font,
+                f"moral {self.average_morale():.0f}  |  insanidade {self.average_insanity():.0f}  |  feudos {self.feud_count()}  |  {self.faction_label(strongest_faction)} {self.faction_standing_label(strongest_faction)}",
+                PALETTE["muted"],
+                society_panel.x + 18,
+                society_panel.y + 46,
+                society_panel.width - 64,
+                line_gap=0,
+            )
 
-        directive_panel = pygame.Rect(SCREEN_WIDTH - 346, 426, 328, 186)
+            self.clamp_society_scroll()
+            viewport = society_layout["viewport"]
+            previous_clip = self.screen.get_clip()
+            self.screen.set_clip(viewport)
+            card_y = viewport.y - int(self.society_scroll)
+            for survivor in self.survivors:
+                self.draw_survivor_card(viewport.x, card_y, viewport.width, 52, survivor)
+                card_y += self.society_card_step()
+            self.screen.set_clip(previous_clip)
+
+            pygame.draw.rect(self.screen, (18, 22, 24), viewport, 1, border_radius=12)
+            scroll_track = society_layout["scrollbar"]
+            pygame.draw.rect(self.screen, (28, 36, 38), scroll_track, border_radius=6)
+            max_scroll = self.society_max_scroll()
+            if max_scroll > 0:
+                total_height = max(viewport.height, self.society_content_height())
+                thumb_height = max(32, int(viewport.height * (viewport.height / max(1, total_height))))
+                thumb_range = max(0, scroll_track.height - thumb_height)
+                thumb_ratio = self.society_scroll / max_scroll if max_scroll > 0 else 0.0
+                thumb = pygame.Rect(
+                    scroll_track.x,
+                    scroll_track.y + int(thumb_range * thumb_ratio),
+                    scroll_track.width,
+                    thumb_height,
+                )
+                pygame.draw.rect(self.screen, PALETTE["accent_soft"], thumb, border_radius=6)
+            else:
+                pygame.draw.rect(self.screen, (72, 90, 94), scroll_track.inflate(0, -scroll_track.height // 2), border_radius=6)
+
+        directive_panel = pygame.Rect(SCREEN_WIDTH - 346, 426, 328, 224)
         self.draw_panel(directive_panel)
         directive_title = self.heading_font.render("Tarefas do Chefe", True, PALETTE["text"])
         self.screen.blit(directive_title, (directive_panel.x + 18, directive_panel.y + 14))
+        bullet_y = directive_panel.y + 52
         for index, line in enumerate(self.current_objectives()):
-            bullet = self.body_font.render(f"{index + 1}. {line}", True, PALETTE["text"])
-            self.screen.blit(bullet, (directive_panel.x + 18, directive_panel.y + 52 + index * 32))
+            bullet_y = self.draw_wrapped_text(
+                self.ui_small_font,
+                f"{index + 1}. {line}",
+                PALETTE["text"],
+                directive_panel.x + 18,
+                bullet_y,
+                directive_panel.width - 32,
+                line_gap=2,
+            ) + 10
 
-        hint_panel = pygame.Rect(18, SCREEN_HEIGHT - 126, SCREEN_WIDTH - 36, 108)
+        hint_panel = pygame.Rect(18, SCREEN_HEIGHT - 138, SCREEN_WIDTH - 36, 120)
         self.draw_panel(hint_panel)
         controls = (
             "WASD mover  |  Shift correr  |  Clique/espaco atacar  |  E agir/dormir  |  Q decisao dura  |  B construir(1-7)  |  F5 salvar  |  F9 carregar",
@@ -1211,9 +1339,17 @@ class RenderMixin:
             if self.player_sleeping
             else (self.dynamic_event_summary() or self.expedition_status_text(short=False) or "Sem crise aguda. O campo segue respirando entre uma pressao e outra."),
         )
+        line_y = hint_panel.y + 14
         for index, line in enumerate(controls):
-            rendered = self.body_font.render(line, True, PALETTE["text"] if index == 0 else (PALETTE["danger_soft"] if index == 2 and self.active_dynamic_events else PALETTE["muted"]))
-            self.screen.blit(rendered, (hint_panel.x + 18, hint_panel.y + 16 + index * 28))
+            line_y = self.draw_wrapped_text(
+                self.ui_small_font if index == 0 else self.body_font,
+                line,
+                PALETTE["text"] if index == 0 else (PALETTE["danger_soft"] if index == 2 and self.active_dynamic_events else PALETTE["muted"]),
+                hint_panel.x + 18,
+                line_y,
+                hint_panel.width - 36,
+                line_gap=2,
+            ) + 6
 
         if self.morale_flash > 0:
             overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -1326,8 +1462,9 @@ class RenderMixin:
         elif getattr(survivor, "insanity", 0.0) > 70:
             bg = (56, 46, 24)
         pygame.draw.rect(self.screen, bg, rect, border_radius=12)
-        pygame.draw.circle(self.screen, survivor.color, (x + 20, y + height // 2), 9)
-        name = self.body_font.render(survivor.name, True, PALETTE["text"])
+        pygame.draw.circle(self.screen, survivor.color, (x + 18, y + height // 2), 8)
+        name_text = self.fit_text_to_width(self.body_font, survivor.name, width - 138)
+        name = self.body_font.render(name_text, True, PALETTE["text"])
         role_label = f"{survivor.role} / {survivor.primary_trait()}"
         if getattr(survivor, "assigned_building_kind", None) == "torre":
             role_label += " / torre"
@@ -1341,7 +1478,7 @@ class RenderMixin:
             role_label += " / cozinha"
         elif getattr(survivor, "assigned_building_kind", None) == "enfermaria":
             role_label += " / enfermaria"
-        role = self.small_font.render(role_label, True, PALETTE["muted"])
+        role = self.ui_small_font.render(self.fit_text_to_width(self.ui_small_font, role_label, width - 138), True, PALETTE["muted"])
         state_label = survivor.state_label
         if getattr(survivor, "on_expedition", False):
             state_label = "em expedicao"
@@ -1356,14 +1493,14 @@ class RenderMixin:
             state_label = "exausto"
         elif survivor.trust_leader < 32:
             state_label = "desconfiado"
-        state = self.small_font.render(
-            state_label if survivor.is_alive() else "perdido",
+        state = self.ui_small_font.render(
+            self.fit_text_to_width(self.ui_small_font, state_label if survivor.is_alive() else "perdido", width - 138),
             True,
             PALETTE["danger_soft"] if not survivor.is_alive() else PALETTE["text"],
         )
-        self.screen.blit(name, (x + 38, y + 5))
-        self.screen.blit(role, (x + 38, y + 21))
-        self.screen.blit(state, (x + 156, y + 11))
+        self.screen.blit(name, (x + 34, y + 3))
+        self.screen.blit(role, (x + 34, y + 20))
+        self.screen.blit(state, (x + 34, y + 34))
 
         ratios = [
             (survivor.health / survivor.max_health, PALETTE["danger_soft"]),
@@ -1372,12 +1509,13 @@ class RenderMixin:
             (survivor.trust_leader / 100, PALETTE["accent_soft"]),
         ]
         for index, (ratio, color) in enumerate(ratios):
-            pygame.draw.rect(self.screen, (18, 22, 24), (x + 198 + index * 21, y + 10, 14, 18), border_radius=6)
-            fill_height = int(16 * clamp(ratio, 0, 1))
+            meter_x = x + width - 88 + index * 20
+            pygame.draw.rect(self.screen, (18, 22, 24), (meter_x, y + 12, 12, 16), border_radius=5)
+            fill_height = int(14 * clamp(ratio, 0, 1))
             pygame.draw.rect(
                 self.screen,
                 color,
-                (x + 199 + index * 21, y + 11 + (16 - fill_height), 12, fill_height),
+                (meter_x + 1, y + 13 + (14 - fill_height), 10, fill_height),
                 border_radius=5,
             )
 
@@ -1471,11 +1609,20 @@ class RenderMixin:
     def draw_title_screen(self) -> None:
         layout = self.title_ui_layout()
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((6, 10, 12, 156))
+        overlay.fill((6, 10, 12, 112))
         self.screen.blit(overlay, (0, 0))
 
+        mist = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        for index in range(4):
+            band = pygame.Rect(0, 80 + index * 160, SCREEN_WIDTH, 120)
+            pygame.draw.ellipse(mist, (12, 16, 18, 34), band.inflate(180, 60))
+        self.screen.blit(mist, (0, 0))
+
         panel = layout["panel"]
-        self.draw_panel(panel)
+        frame = pygame.Surface(panel.size, pygame.SRCALPHA)
+        pygame.draw.rect(frame, (8, 12, 14, 132), frame.get_rect(), border_radius=28)
+        pygame.draw.rect(frame, (124, 96, 70, 70), frame.get_rect(), 1, border_radius=28)
+        self.screen.blit(frame, panel.topleft)
 
         title = self.title_font.render("Fogueira do Fim", True, PALETTE["text"])
         subtitle = self.body_font.render(
@@ -1483,41 +1630,67 @@ class RenderMixin:
             True,
             PALETTE["accent_soft"],
         )
-        self.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 76)))
-        self.screen.blit(subtitle, subtitle.get_rect(center=(panel.centerx, panel.y + 120)))
+        self.screen.blit(title, (panel.x + 38, panel.y + 34))
+        self.screen.blit(subtitle, (panel.x + 42, panel.y + 96))
+        live_tag = self.ui_small_font.render("Simulacao viva ao fundo", True, PALETTE["morale"])
+        self.screen.blit(live_tag, (panel.right - live_tag.get_width() - 40, panel.y + 48))
 
         left_card = layout["left_card"]
         self.draw_panel(left_card)
-        section = self.heading_font.render("Visao da Clareira", True, PALETTE["text"])
+        section = self.heading_font.render("Noite Sobre a Clareira", True, PALETTE["text"])
         self.screen.blit(section, (left_card.x + 20, left_card.y + 18))
         pitch_lines = [
-            "Voce lidera sobreviventes no meio da mata, com rotina, fome, sono e medo.",
-            "O acampamento cresce por construcoes, barricadas, camas, oficinas e fogo.",
-            "O mundo se abre em regioes nomeadas, bosses de zona, faccoes e hordas.",
-            "Zumbis surgem na floresta, rondam a base e pressionam a sociedade por dentro.",
+            "Ao fundo, o campo continua respirando: sobreviventes rondam, fogo pulsa e a floresta nunca dorme.",
+            "Voce lidera gente exausta no meio da mata, administrando sono, fome, medo e lealdade.",
+            "A base cresce por barracas, oficinas, barricadas e expedicoes para muito alem da primeira linha de arvores.",
+            "Cada noite cobra leitura social e defesa; cada dia cobra recurso, risco e presenca.",
         ]
-        for index, line in enumerate(pitch_lines):
-            rendered = self.body_font.render(line, True, PALETTE["text"])
-            self.screen.blit(rendered, (left_card.x + 20, left_card.y + 64 + index * 42))
+        paragraph_y = left_card.y + 64
+        text_width = left_card.width - 40
+        for line in pitch_lines:
+            paragraph_y = self.draw_wrapped_text(
+                self.body_font,
+                line,
+                PALETTE["text"],
+                left_card.x + 20,
+                paragraph_y,
+                text_width,
+                line_gap=4,
+            ) + 12
 
         feature_box = pygame.Rect(left_card.x + 18, left_card.bottom - 126, left_card.width - 36, 92)
         pygame.draw.rect(self.screen, PALETTE["ui_panel"], feature_box, border_radius=14)
         pygame.draw.rect(self.screen, PALETTE["ui_line"], feature_box, 1, border_radius=14)
         feature_lines = [
-            "Top-down com neblina, HUD social, som procedural e defesa de base.",
-            "Cada noite pede leitura de recursos, moral, insanidade e tensao do mundo.",
+            "Comece um novo turno, revise o ultimo save ou ajuste a apresentacao antes de entrar.",
+            "Ao iniciar um jogo novo, uma sequencia curta de dicas aparece e pode ser pulada a qualquer momento.",
         ]
+        feature_y = feature_box.y + 16
         for index, line in enumerate(feature_lines):
-            text = self.small_font.render(line, True, PALETTE["muted"] if index == 0 else PALETTE["accent_soft"])
-            self.screen.blit(text, (feature_box.x + 14, feature_box.y + 18 + index * 28))
+            feature_y = self.draw_wrapped_text(
+                self.ui_small_font,
+                line,
+                PALETTE["muted"] if index == 0 else PALETTE["accent_soft"],
+                feature_box.x + 14,
+                feature_y,
+                feature_box.width - 28,
+                line_gap=2,
+            ) + 6
 
         right_card = layout["right_card"]
         self.draw_panel(right_card)
         mouse_pos = self.input_state.mouse_screen if hasattr(self, "input_state") else Vector2()
         menu_title = self.heading_font.render("Entrada da Clareira", True, PALETTE["text"])
         self.screen.blit(menu_title, (right_card.x + 20, right_card.y + 18))
-        help_line = self.small_font.render("Mouse, WASD/setas e Enter funcionam juntos nesta tela unica.", True, PALETTE["muted"])
-        self.screen.blit(help_line, (right_card.x + 20, right_card.y + 48))
+        self.draw_wrapped_text(
+            self.ui_small_font,
+            "Tela cheia, mouse ativo e simulacao viva atras do menu principal.",
+            PALETTE["muted"],
+            right_card.x + 20,
+            right_card.y + 48,
+            right_card.width - 40,
+            line_gap=2,
+        )
 
         for index, action in enumerate(self.title_actions):
             row = layout["action_rows"][index]
@@ -1529,51 +1702,126 @@ class RenderMixin:
                 prompt_text = "Retomar o ultimo acampamento salvo."
             elif action == "Novo Jogo":
                 prompt_text = "Entrar na clareira."
+            elif action == "Configuracoes":
+                prompt_text = "Abrir ou recolher os ajustes."
             else:
                 prompt_text = "Fechar a sessao."
-            prompt = self.small_font.render(
-                prompt_text,
-                True,
-                PALETTE["muted"],
-            )
             self.screen.blit(label, (row.x + 16, row.y + 9))
-            self.screen.blit(prompt, (row.x + 16, row.y + 28))
+            self.draw_wrapped_text(
+                self.ui_small_font,
+                prompt_text,
+                PALETTE["muted"],
+                row.x + 16,
+                row.y + 27,
+                row.width - 32,
+                line_gap=0,
+            )
 
-        settings_title = self.heading_font.render("Configuracoes", True, PALETTE["text"])
-        settings_y = layout["action_rows"][-1].bottom + 10
-        self.screen.blit(settings_title, (right_card.x + 20, settings_y))
-        settings_help = self.small_font.render("Clique em - e + ou use A/D para ajustar a linha marcada.", True, PALETTE["muted"])
-        self.screen.blit(settings_help, (right_card.x + 20, settings_y + 26))
+        settings_header = layout["settings_header"]
+        if self.title_settings_open:
+            pygame.draw.rect(self.screen, PALETTE["ui_panel"], settings_header, border_radius=12)
+            pygame.draw.rect(self.screen, PALETTE["ui_line"], settings_header, 1, border_radius=12)
+            settings_title = self.heading_font.render("Configuracoes", True, PALETTE["text"])
+            self.screen.blit(settings_title, (settings_header.x + 12, settings_header.y + 8))
+            settings_help_y = self.draw_wrapped_text(
+                self.ui_small_font,
+                "Clique em - e + ou use A e D para ajustar a linha marcada.",
+                PALETTE["muted"],
+                settings_header.x + 14,
+                settings_header.y + 32,
+                settings_header.width - 28,
+                line_gap=0,
+            )
 
-        for index, ((key, label, _, _, _), item) in enumerate(zip(self.title_setting_entries, layout["setting_rows"])):
-            row = item["row"]
-            active = self.title_setting_index == index or row.collidepoint(mouse_pos)
-            pygame.draw.rect(self.screen, (44, 58, 62) if active else PALETTE["ui_panel"], row, border_radius=12)
-            pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=12)
-            minus_hover = item["minus"].collidepoint(mouse_pos)
-            plus_hover = item["plus"].collidepoint(mouse_pos)
-            pygame.draw.rect(self.screen, (70, 84, 88) if minus_hover else (54, 66, 70), item["minus"], border_radius=7)
-            pygame.draw.rect(self.screen, (70, 84, 88) if plus_hover else (54, 66, 70), item["plus"], border_radius=7)
-            pygame.draw.rect(self.screen, PALETTE["ui_line"], item["minus"], 1, border_radius=7)
-            pygame.draw.rect(self.screen, PALETTE["ui_line"], item["plus"], 1, border_radius=7)
-            pygame.draw.rect(self.screen, (32, 40, 42), item["value"], border_radius=7)
-            pygame.draw.rect(self.screen, PALETTE["ui_line"], item["value"], 1, border_radius=7)
-            left = self.small_font.render(label, True, PALETTE["text"])
-            value = self.small_font.render(self.title_setting_value_label(str(key)), True, PALETTE["morale"] if active else PALETTE["text"])
-            minus = self.body_font.render("-", True, PALETTE["text"])
-            plus = self.body_font.render("+", True, PALETTE["text"])
-            self.screen.blit(left, (row.x + 12, row.y + 6))
-            self.screen.blit(value, value.get_rect(center=item["value"].center))
-            self.screen.blit(minus, minus.get_rect(center=item["minus"].center))
-            self.screen.blit(plus, plus.get_rect(center=item["plus"].center))
+            for index, ((key, label, _, _, _), item) in enumerate(zip(self.title_setting_entries, layout["setting_rows"])):
+                row = item["row"]
+                active = self.title_setting_index == index or row.collidepoint(mouse_pos)
+                pygame.draw.rect(self.screen, (44, 58, 62) if active else PALETTE["ui_panel"], row, border_radius=12)
+                pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=12)
+                minus_hover = item["minus"].collidepoint(mouse_pos)
+                plus_hover = item["plus"].collidepoint(mouse_pos)
+                pygame.draw.rect(self.screen, (70, 84, 88) if minus_hover else (54, 66, 70), item["minus"], border_radius=7)
+                pygame.draw.rect(self.screen, (70, 84, 88) if plus_hover else (54, 66, 70), item["plus"], border_radius=7)
+                pygame.draw.rect(self.screen, PALETTE["ui_line"], item["minus"], 1, border_radius=7)
+                pygame.draw.rect(self.screen, PALETTE["ui_line"], item["plus"], 1, border_radius=7)
+                pygame.draw.rect(self.screen, (32, 40, 42), item["value"], border_radius=7)
+                pygame.draw.rect(self.screen, PALETTE["ui_line"], item["value"], 1, border_radius=7)
+                left = self.ui_small_font.render(label, True, PALETTE["text"])
+                value = self.ui_small_font.render(self.title_setting_value_label(str(key)), True, PALETTE["morale"] if active else PALETTE["text"])
+                minus = self.body_font.render("-", True, PALETTE["text"])
+                plus = self.body_font.render("+", True, PALETTE["text"])
+                self.screen.blit(left, (row.x + 12, row.y + 5))
+                self.screen.blit(value, value.get_rect(center=item["value"].center))
+                self.screen.blit(minus, minus.get_rect(center=item["minus"].center))
+                self.screen.blit(plus, plus.get_rect(center=item["plus"].center))
 
         footer_text = (
             self.event_message
             if getattr(self, "event_timer", 0) > 0
-            else "Tudo roda em runtime: som procedural, mundo sem bordo pratico e simulacao social viva."
+            else "Enter confirma  |  Esc fecha  |  Novo Jogo abre as dicas antes da vigia."
         )
-        footer = self.small_font.render(footer_text, True, PALETTE["muted"])
-        self.screen.blit(footer, footer.get_rect(center=(panel.centerx, panel.bottom - 28)))
+        footer_width = panel.width - 160
+        footer_lines = self.wrap_text_lines(self.ui_small_font, footer_text, footer_width)
+        footer_line_height = self.ui_small_font.get_linesize()
+        footer_total = len(footer_lines) * footer_line_height + max(0, len(footer_lines) - 1) * 2
+        footer_y = panel.bottom - 26 - footer_total
+        for index, line in enumerate(footer_lines):
+            footer = self.ui_small_font.render(line, True, PALETTE["muted"])
+            self.screen.blit(footer, footer.get_rect(center=(panel.centerx, footer_y + index * (footer_line_height + 2) + footer_line_height // 2)))
+
+    def draw_tips_screen(self) -> None:
+        layout = self.tips_ui_layout()
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((6, 10, 12, 124))
+        self.screen.blit(overlay, (0, 0))
+
+        panel = layout["panel"]
+        self.draw_panel(panel)
+        page = self.tutorial_pages[self.tips_index]
+        mouse_pos = self.input_state.mouse_screen if hasattr(self, "input_state") else Vector2()
+        next_hover = layout["next_button"].collidepoint(mouse_pos)
+        skip_hover = layout["skip_button"].collidepoint(mouse_pos)
+        last_page = self.tips_index >= len(self.tutorial_pages) - 1
+
+        eyebrow = self.small_font.render(str(page["eyebrow"]).upper(), True, PALETTE["morale"])
+        title = self.title_font.render(str(page["title"]), True, PALETTE["text"])
+        body = self.body_font.render(str(page["body"]), True, PALETTE["accent_soft"])
+        self.screen.blit(eyebrow, (panel.x + 42, panel.y + 24))
+        self.screen.blit(title, (panel.x + 38, panel.y + 52))
+        self.screen.blit(body, (panel.x + 44, panel.y + 118))
+
+        content = layout["content"]
+        box = pygame.Rect(content.x, content.y + 18, content.width, content.height - 36)
+        pygame.draw.rect(self.screen, (24, 32, 34), box, border_radius=22)
+        pygame.draw.rect(self.screen, PALETTE["ui_line"], box, 1, border_radius=22)
+        hint = self.small_font.render(
+            "Dicas essenciais para entrar na primeira vigia. Enter avanca, Esc pula.",
+            True,
+            PALETTE["muted"],
+        )
+        self.screen.blit(hint, (box.x + 22, box.y + 18))
+
+        for index, bullet in enumerate(page["bullets"]):
+            pill = pygame.Rect(box.x + 20, box.y + 56 + index * 72, box.width - 40, 52)
+            pygame.draw.rect(self.screen, PALETTE["ui_panel"], pill, border_radius=16)
+            pygame.draw.rect(self.screen, PALETTE["accent_soft"] if index == self.tips_index else PALETTE["ui_line"], pill, 1, border_radius=16)
+            num = self.body_font.render(f"{index + 1}", True, PALETTE["morale"])
+            text = self.body_font.render(str(bullet), True, PALETTE["text"])
+            self.screen.blit(num, (pill.x + 16, pill.y + 14))
+            self.screen.blit(text, (pill.x + 44, pill.y + 14))
+
+        for index in range(len(self.tutorial_pages)):
+            color = PALETTE["accent_soft"] if index == self.tips_index else (68, 82, 86)
+            pygame.draw.circle(self.screen, color, (panel.x + 52 + index * 20, panel.bottom - 44), 5)
+
+        for rect, label, hover in (
+            (layout["next_button"], "Entrar no Jogo" if last_page else "Proxima", next_hover),
+            (layout["skip_button"], "Pular Dicas", skip_hover),
+        ):
+            pygame.draw.rect(self.screen, (62, 80, 84) if hover else PALETTE["ui_panel"], rect, border_radius=14)
+            pygame.draw.rect(self.screen, PALETTE["accent_soft"] if hover else PALETTE["ui_line"], rect, 1, border_radius=14)
+            text = self.body_font.render(label, True, PALETTE["text"])
+            self.screen.blit(text, text.get_rect(center=rect.center))
 
     def draw_game_over(self) -> None:
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)

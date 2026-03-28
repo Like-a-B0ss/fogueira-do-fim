@@ -10,6 +10,7 @@ from pygame import Vector2
 class InputState:
     move: Vector2 = field(default_factory=Vector2)
     mouse_screen: Vector2 = field(default_factory=Vector2)
+    mouse_wheel_y: int = 0
     sprint: bool = False
     attack_pressed: bool = False
     interact_pressed: bool = False
@@ -86,5 +87,7 @@ class InputSystem:
                     state.focus_slot = 7
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 state.attack_pressed = True
+            elif event.type == pygame.MOUSEWHEEL:
+                state.mouse_wheel_y += int(event.y)
 
         return state

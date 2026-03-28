@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 from pathlib import Path
 
@@ -56,6 +57,7 @@ class Game(WorldMixin, RenderMixin):
         self.heading_font = load_font(24, title=True)
         self.body_font = load_font(18)
         self.small_font = load_font(15)
+        self.ui_small_font = load_font(16)
         self.runtime_settings: dict[str, float] = {
             "master_volume": 0.86,
             "ambience_volume": 0.92,
@@ -67,6 +69,12 @@ class Game(WorldMixin, RenderMixin):
         self.title_actions = ()
         self.title_action_index = 0
         self.title_setting_index = 0
+        self.title_settings_open = False
+        self.tips_index = 0
+        self.title_bg_phase = 0.0
+        self.title_bg_spawn_timer = 8.0
+        self.society_panel_collapsed = False
+        self.society_scroll = 0.0
         self.title_setting_entries = (
             ("master_volume", "Volume Geral", 0.05, 0.0, 1.0),
             ("ambience_volume", "Ambiencia", 0.05, 0.0, 1.0),
@@ -77,6 +85,7 @@ class Game(WorldMixin, RenderMixin):
         )
         self.audio.apply_settings(self.runtime_settings)
         self.refresh_title_actions()
+        self.tutorial_pages = self.create_tutorial_pages()
 
         self.player = Player(CAMP_CENTER + Vector2(20, 40))
         self.day = 1
@@ -183,6 +192,22 @@ class Game(WorldMixin, RenderMixin):
         self.scenes.change(SceneId.GAMEPLAY)
         self.audio.play_transition("start")
 
+    def begin_new_game_flow(self) -> None:
+        settings_snapshot = dict(self.runtime_settings)
+        self.__init__(seed=self.seed, smoke_test=self.smoke_test)
+        self.runtime_settings.update(settings_snapshot)
+        self.audio.apply_settings(self.runtime_settings)
+        self.refresh_title_actions()
+        self.begin_tips()
+
+    def begin_tips(self) -> None:
+        self.tips_index = 0
+        self.scenes.change(SceneId.TIPS)
+        self.set_event_message("Leia as dicas rapido ou pule quando quiser. A clareira continua respirando atras da tela.", duration=6.2)
+
+    def skip_tips_to_gameplay(self) -> None:
+        self.start_gameplay()
+
     def restart_game(self) -> None:
         self.audio.play_transition("restart")
         settings_snapshot = dict(self.runtime_settings)
@@ -191,11 +216,45 @@ class Game(WorldMixin, RenderMixin):
         self.audio.apply_settings(self.runtime_settings)
 
     def refresh_title_actions(self) -> None:
-        actions = ["Novo Jogo", "Sair"]
+        actions = ["Novo Jogo", "Configuracoes", "Sair"]
         if self.save_exists():
             actions.insert(0, "Continuar")
         self.title_actions = tuple(actions)
         self.title_action_index = max(0, min(self.title_action_index, len(self.title_actions) - 1))
+
+    def create_tutorial_pages(self) -> tuple[dict[str, object], ...]:
+        return (
+            {
+                "eyebrow": "Lideranca da Clareira",
+                "title": "Voce e o chefe do acampamento",
+                "body": "Sua presenca segura moral, rotina e defesa. O grupo trabalha sozinho, mas depende de foco, fogo e direcao para nao quebrar.",
+                "bullets": (
+                    "WASD move o chefe pela base e pela mata.",
+                    "E interage com barracas, radio, oficina, fogueira, eventos e sobreviventes.",
+                    "1-4 muda a prioridade social do dia.",
+                ),
+            },
+            {
+                "eyebrow": "Sobrevivencia",
+                "title": "Tudo gira em torno de estoque e tempo",
+                "body": "O acampamento precisa de toras, tabuas, comida, remedios e sucata. A noite aperta mais, e a fogueira segura o centro da sociedade.",
+                "bullets": (
+                    "Clique esquerdo ou Espaco ataca e derruba arvores.",
+                    "B abre a construcao; 1-7 escolhe o edificio.",
+                    "E na oficina amplia a base quando houver toras e sucata.",
+                ),
+            },
+            {
+                "eyebrow": "Pressao do Mundo",
+                "title": "Explore, decida e nao deixe o campo ruir",
+                "body": "Zumbis rondam a floresta, faccoes cobram respostas, expedicoes pedem resgate e a sociedade pode enlouquecer se voce sumir demais.",
+                "bullets": (
+                    "Q resolve decisoes duras em eventos morais e faccoes.",
+                    "F5 salva e F9 carrega sem sair da partida.",
+                    "Enter avanca as dicas; Esc pula tudo e entra no jogo.",
+                ),
+            },
+        )
 
     def save_exists(self) -> bool:
         return SAVE_FILE.exists()
@@ -725,29 +784,110 @@ class Game(WorldMixin, RenderMixin):
         return f"{int(round(self.runtime_settings.get(key, 0.0) * 100))}%"
 
     def title_ui_layout(self) -> dict[str, object]:
-        panel = pygame.Rect(0, 0, 1180, 620)
-        panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-        left_card = pygame.Rect(panel.x + 34, panel.y + 164, 528, 380)
-        right_card = pygame.Rect(panel.x + 598, panel.y + 164, 548, 380)
+        panel = pygame.Rect(46, 42, SCREEN_WIDTH - 92, SCREEN_HEIGHT - 84)
+        left_card = pygame.Rect(panel.x + 38, panel.y + 148, int(panel.width * 0.48), panel.height - 204)
+        right_card = pygame.Rect(left_card.right + 28, panel.y + 148, panel.right - left_card.right - 66, panel.height - 204)
         action_rows = [
             pygame.Rect(right_card.x + 20, right_card.y + 86 + index * 66, right_card.width - 40, 52)
             for index, _ in enumerate(self.title_actions)
         ]
-        settings_top = action_rows[-1].bottom + 36
+        settings_header = pygame.Rect(right_card.x + 20, action_rows[-1].bottom + 24, right_card.width - 40, 60)
         setting_rows = []
-        for index, _entry in enumerate(self.title_setting_entries):
-            row = pygame.Rect(right_card.x + 20, settings_top + index * 36, right_card.width - 40, 30)
-            minus = pygame.Rect(row.right - 116, row.y + 4, 24, 22)
-            plus = pygame.Rect(row.right - 30, row.y + 4, 24, 22)
-            value_box = pygame.Rect(row.right - 88, row.y + 4, 50, 22)
-            setting_rows.append({"row": row, "minus": minus, "plus": plus, "value": value_box})
+        if self.title_settings_open:
+            settings_top = settings_header.bottom + 12
+            for index, _entry in enumerate(self.title_setting_entries):
+                row = pygame.Rect(right_card.x + 20, settings_top + index * 38, right_card.width - 40, 30)
+                minus = pygame.Rect(row.right - 116, row.y + 4, 24, 22)
+                plus = pygame.Rect(row.right - 30, row.y + 4, 24, 22)
+                value_box = pygame.Rect(row.right - 88, row.y + 4, 50, 22)
+                setting_rows.append({"row": row, "minus": minus, "plus": plus, "value": value_box})
         return {
             "panel": panel,
             "left_card": left_card,
             "right_card": right_card,
             "action_rows": action_rows,
+            "settings_header": settings_header,
             "setting_rows": setting_rows,
         }
+
+    def tips_ui_layout(self) -> dict[str, pygame.Rect]:
+        panel = pygame.Rect(0, 0, min(1120, SCREEN_WIDTH - 120), min(620, SCREEN_HEIGHT - 120))
+        panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+        content = pygame.Rect(panel.x + 42, panel.y + 92, panel.width - 84, panel.height - 188)
+        skip_button = pygame.Rect(panel.right - 194, panel.bottom - 66, 150, 42)
+        next_button = pygame.Rect(skip_button.x - 170, skip_button.y, 150, 42)
+        return {
+            "panel": panel,
+            "content": content,
+            "skip_button": skip_button,
+            "next_button": next_button,
+        }
+
+    def society_panel_layout(self) -> dict[str, pygame.Rect]:
+        height = 92 if self.society_panel_collapsed else 394
+        panel = pygame.Rect(SCREEN_WIDTH - 346, 16, 328, height)
+        header = pygame.Rect(panel.x + 12, panel.y + 10, panel.width - 24, 54)
+        toggle = pygame.Rect(panel.right - 38, panel.y + 16, 20, 20)
+        viewport = pygame.Rect(panel.x + 16, panel.y + 96, 284, max(0, panel.height - 114))
+        scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)
+        return {
+            "panel": panel,
+            "header": header,
+            "toggle": toggle,
+            "viewport": viewport,
+            "scrollbar": scrollbar,
+        }
+
+    def society_card_step(self) -> int:
+        return 60
+
+    def society_content_height(self) -> int:
+        if not self.survivors:
+            return 0
+        return len(self.survivors) * self.society_card_step() - 8
+
+    def society_max_scroll(self) -> float:
+        if self.society_panel_collapsed:
+            return 0.0
+        viewport = self.society_panel_layout()["viewport"]
+        return max(0.0, float(self.society_content_height() - viewport.height))
+
+    def clamp_society_scroll(self) -> None:
+        self.society_scroll = clamp(self.society_scroll, 0.0, self.society_max_scroll())
+
+    def adjust_society_scroll(self, delta: float) -> None:
+        self.society_scroll = clamp(self.society_scroll + delta, 0.0, self.society_max_scroll())
+
+    def handle_society_panel_input(self) -> bool:
+        layout = self.society_panel_layout()
+        mouse_pos = self.input_state.mouse_screen
+        if self.input_state.mouse_wheel_y and not self.society_panel_collapsed and layout["panel"].collidepoint(mouse_pos):
+            self.adjust_society_scroll(-self.input_state.mouse_wheel_y * 32)
+
+        if not self.input_state.attack_pressed:
+            return False
+
+        if self.society_panel_collapsed:
+            if layout["panel"].collidepoint(mouse_pos):
+                self.society_panel_collapsed = False
+                self.audio.play_ui("focus")
+                return True
+            return False
+
+        if layout["header"].collidepoint(mouse_pos) or layout["toggle"].collidepoint(mouse_pos):
+            self.society_panel_collapsed = True
+            self.audio.play_ui("back")
+            return True
+
+        max_scroll = self.society_max_scroll()
+        if max_scroll > 0 and layout["scrollbar"].collidepoint(mouse_pos):
+            track = layout["scrollbar"]
+            ratio = clamp((mouse_pos.y - track.y) / max(1, track.height), 0.0, 1.0)
+            self.society_scroll = max_scroll * ratio
+            self.audio.play_ui("focus")
+            return True
+
+        return layout["panel"].collidepoint(mouse_pos)
 
     def handle_title_input(self) -> None:
         layout = self.title_ui_layout()
@@ -767,7 +907,7 @@ class Game(WorldMixin, RenderMixin):
         elif self.input_state.menu_down:
             self.title_action_index = (self.title_action_index + 1) % len(self.title_actions)
             self.audio.play_ui("focus")
-        if self.input_state.menu_left or self.input_state.menu_right:
+        if self.title_settings_open and (self.input_state.menu_left or self.input_state.menu_right):
             key, _, step, low, high = self.title_setting_entries[self.title_setting_index]
             direction = -1.0 if self.input_state.menu_left else 1.0
             self.adjust_runtime_setting(str(key), float(step) * direction, float(low), float(high))
@@ -798,9 +938,35 @@ class Game(WorldMixin, RenderMixin):
                 self.set_event_message(message, duration=5.2)
                 self.audio.play_alert()
         elif choice == "Novo Jogo":
-            self.start_gameplay()
+            self.begin_new_game_flow()
+        elif choice == "Configuracoes":
+            self.title_settings_open = not self.title_settings_open
+            self.audio.play_ui("focus" if self.title_settings_open else "back")
         elif choice == "Sair":
             self.running = False
+
+    def handle_tips_input(self) -> None:
+        layout = self.tips_ui_layout()
+        mouse_pos = self.input_state.mouse_screen
+        clicked = self.input_state.attack_pressed
+        page_count = len(self.tutorial_pages)
+        on_last = self.tips_index >= page_count - 1
+
+        if self.input_state.cancel_pressed or self.input_state.alt_interact_pressed:
+            self.skip_tips_to_gameplay()
+            return
+
+        if clicked and layout["skip_button"].collidepoint(mouse_pos):
+            self.skip_tips_to_gameplay()
+            return
+
+        if self.input_state.confirm_pressed or self.input_state.interact_pressed or (clicked and layout["next_button"].collidepoint(mouse_pos)):
+            if on_last:
+                self.start_gameplay()
+            else:
+                self.tips_index = min(page_count - 1, self.tips_index + 1)
+                self.audio.play_ui("focus")
+            return
 
     def begin_player_sleep(self, slot: dict[str, object]) -> None:
         self.player_sleeping = True
@@ -878,6 +1044,9 @@ class Game(WorldMixin, RenderMixin):
                 self.build_menu_open = False
                 self.audio.play_ui("back")
                 return
+            if self.scenes.is_tips():
+                self.skip_tips_to_gameplay()
+                return
             if self.scenes.is_gameplay():
                 self.scenes.change(SceneId.TITLE)
                 self.audio.play_ui("back")
@@ -889,11 +1058,18 @@ class Game(WorldMixin, RenderMixin):
             self.handle_title_input()
             return
 
+        if self.scenes.is_tips():
+            self.handle_tips_input()
+            return
+
         if self.scenes.is_game_over() and self.input_state.confirm_pressed:
             self.restart_game()
             return
 
         if not self.scenes.is_gameplay():
+            return
+
+        if self.handle_society_panel_input():
             return
 
         if self.input_state.load_pressed:
@@ -970,6 +1146,10 @@ class Game(WorldMixin, RenderMixin):
             self.player.perform_attack(self)
 
     def update(self, dt: float) -> None:
+        if self.scenes.is_title() or self.scenes.is_tips():
+            self.update_background_simulation(dt)
+            return
+
         if not self.scenes.allows_world_update:
             self.camera.center_on(CAMP_CENTER)
             return
@@ -1062,6 +1242,46 @@ class Game(WorldMixin, RenderMixin):
             self.audio.play_alert()
 
         self.camera.center_on(self.player.pos)
+        self.audio.update(self, dt)
+
+    def update_background_simulation(self, dt: float) -> None:
+        self.title_bg_phase += dt
+        self.event_timer = max(0.0, self.event_timer - dt)
+        self.screen_shake = max(0.0, self.screen_shake - dt * 8)
+        self.morale_flash = max(0.0, self.morale_flash - dt * 0.45)
+
+        for node in self.resource_nodes:
+            node.update(dt * 0.5)
+        for survivor in self.survivors:
+            survivor.update(self, dt * 0.5)
+            self.resolve_actor_camp_collision(survivor)
+        for zombie in self.zombies:
+            zombie.update(self, dt * 0.5)
+        self.zombies = [zombie for zombie in self.zombies if zombie.is_alive()]
+
+        for floating in list(self.floating_texts):
+            if not floating.update(dt):
+                self.floating_texts.remove(floating)
+        for ember in list(self.embers):
+            if not ember.update(dt):
+                self.embers.remove(ember)
+        for pulse in list(self.damage_pulses):
+            if not pulse.update(dt):
+                self.damage_pulses.remove(pulse)
+        for mote in self.fog_motes:
+            mote.update(dt * 0.85)
+
+        self.title_bg_spawn_timer -= dt
+        if self.title_bg_spawn_timer <= 0:
+            if len(self.zombies) < 5 and self.random.random() < 0.72:
+                self.spawn_forest_ambient_zombie()
+            self.title_bg_spawn_timer = self.random.uniform(7.0, 12.0)
+
+        orbit = CAMP_CENTER + Vector2(
+            math.cos(self.title_bg_phase * 0.18) * 170,
+            math.sin(self.title_bg_phase * 0.24) * 96,
+        )
+        self.camera.center_on(orbit)
         self.audio.update(self, dt)
 
     def run(self) -> int:

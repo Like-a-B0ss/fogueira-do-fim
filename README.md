@@ -58,6 +58,7 @@ Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de u
 - `Enter`: iniciar ou reiniciar
 - `Setas` ou `WASD` na tela inicial: navegar pelo menu e pelas configuracoes
 - `Mouse` na tela inicial: clicar em `Continuar`, `Novo Jogo`, `Sair` e ajustar configuracoes
+- `Novo Jogo`: abre uma sequencia curta de dicas antes da partida; `Enter` avanca e `Esc` pula
 - `Esc`: voltar para a tela inicial
 
 ## Loop do jogo
