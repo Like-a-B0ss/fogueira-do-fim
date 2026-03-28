@@ -734,6 +734,8 @@ class WorldMixin:
                 return active_event.pos, "E acolher forasteiro"
             if active_event.kind == "incendio" and player.distance_to(active_event.pos) < 118:
                 return active_event.pos, "E conter incendio"
+            if active_event.kind == "alarme" and player.distance_to(active_event.pos) < 120:
+                return active_event.pos, "E responder ao alarme da cerca"
             if active_event.kind in {"fuga", "desercao", "doenca"}:
                 target = next(
                     (survivor for survivor in self.survivors if survivor.name == active_event.target_name and survivor.is_alive()),
@@ -798,7 +800,7 @@ class WorldMixin:
 
         for survivor in self.survivors:
             if survivor.distance_to(player.pos) < 92:
-                return survivor.pos, f"E orientar {survivor.name.lower()}"
+                return survivor.pos, f"E conversar com {survivor.name.lower()}"
         return None
 
     def total_bed_capacity(self) -> int:
@@ -1164,6 +1166,143 @@ class WorldMixin:
         if survivor.has_trait("paranoico") and delta < 0:
             delta *= 1.22
         survivor.trust_leader = clamp(survivor.trust_leader + delta, 0, 100)
+
+    def impact_burst(
+        self,
+        origin: Vector2,
+        color: tuple[int, int, int],
+        *,
+        radius: float = 12,
+        shake: float = 0.0,
+        ember_count: int = 0,
+        smoky: bool = False,
+    ) -> None:
+        self.damage_pulses.append(DamagePulse(Vector2(origin), radius, 0.24, color))
+        if radius >= 11:
+            self.damage_pulses.append(DamagePulse(Vector2(origin), radius * 1.45, 0.18, color))
+        if ember_count > 0:
+            self.emit_embers(origin, ember_count, smoky=smoky)
+        if shake > 0:
+            self.screen_shake = max(self.screen_shake, shake)
+
+    def survivor_bark_options(self, survivor: Survivor) -> list[tuple[str, tuple[int, int, int]]]:
+        lines: list[tuple[str, tuple[int, int, int]]] = []
+        crisis = self.dynamic_event_for_survivor(survivor)
+        active_event = self.active_dynamic_event()
+        if crisis and crisis.kind == "doenca":
+            lines.extend((("To queimando por dentro.", PALETTE["danger_soft"]), ("Nao me deixa apagar aqui.", PALETTE["danger_soft"])))
+        elif crisis and crisis.kind in {"fuga", "desercao"}:
+            lines.extend((("Nao da mais pra segurar!", PALETTE["danger_soft"]), ("Eu preciso sumir da trilha.", PALETTE["danger_soft"])))
+        elif active_event and active_event.kind == "incendio":
+            lines.extend((("Fogo no campo!", PALETTE["danger_soft"]), ("Traz agua, agora!", PALETTE["danger_soft"])))
+        elif active_event and active_event.kind == "alarme":
+            lines.extend((("Ouvi pancada na cerca!", PALETTE["danger_soft"]), ("Tem coisa rondando a linha!", PALETTE["danger_soft"])))
+        elif active_event and active_event.kind == "expedicao":
+            lines.extend((("A trilha ta pedindo socorro.", PALETTE["morale"]), ("Se cair a coluna, cai nossa moral.", PALETTE["morale"])))
+
+        if self.is_night and getattr(self, "horde_active", False):
+            lines.extend((("Segura a linha!", PALETTE["danger_soft"]), ("A mata inteira ta vindo.", PALETTE["danger_soft"])))
+        elif self.is_night and self.find_closest_zombie(survivor.pos, 150):
+            lines.extend((("Contato perto da paliçada.", PALETTE["danger_soft"]), ("Mortos na escuridao.", PALETTE["danger_soft"])))
+
+        if self.bonfire_heat < 28 or self.bonfire_ember_bed < 18:
+            lines.extend((("A fogueira ta morrendo.", PALETTE["morale"]), ("Sem fogo o campo desanda.", PALETTE["morale"])))
+        if self.food + self.meals <= max(2, len(self.living_survivors()) // 2):
+            lines.extend((("A panela ta vazia.", PALETTE["accent_soft"]), ("A fome vai virar briga.", PALETTE["accent_soft"])))
+        if survivor.health < 42:
+            lines.extend((("Preciso de curativo.", PALETTE["heal"]), ("Nao aguento mais um golpe.", PALETTE["heal"])))
+        if survivor.insanity > 74:
+            lines.extend((("A mata ta falando comigo.", PALETTE["morale"]), ("Tem olho demais na escuridao.", PALETTE["morale"])))
+        if survivor.trust_leader < 34:
+            lines.extend((("Chefe, voce sumiu demais.", PALETTE["muted"]), ("A gente ta segurando isso no osso.", PALETTE["muted"])))
+        if survivor.has_trait("leal") and self.player.distance_to(survivor.pos) < 150:
+            lines.extend((("Eu seguro contigo, chefe.", PALETTE["heal"]), ("Da a ordem que eu vou.", PALETTE["heal"])))
+        if survivor.has_trait("sociavel") and self.player.distance_to(self.bonfire_pos) < 180:
+            lines.extend((("Fica perto do fogo com a gente.", PALETTE["morale"]), ("Uma historia segura mais que faca.", PALETTE["morale"])))
+        if survivor.has_trait("paranoico") and self.is_night:
+            lines.extend((("Tem coisa na linha das arvores.", PALETTE["danger_soft"]), ("Nao confio nesse silencio.", PALETTE["danger_soft"])))
+
+        friend = self.best_friend_name(survivor)
+        rival = self.rival_name(survivor)
+        if friend and survivor.morale > 58 and self.random.random() < 0.35:
+            lines.append((f"{friend} ainda segura meu juizo.", PALETTE["accent_soft"]))
+        if rival and survivor.conflict_cooldown <= 0 and self.random.random() < 0.28:
+            lines.append((f"{rival} vai me fazer explodir.", PALETTE["danger_soft"]))
+
+        if not lines:
+            lines.extend(
+                (
+                    ("Mais um turno e a gente segura.", PALETTE["text"]),
+                    ("Se o fogo fica vivo, eu fico tambem.", PALETTE["text"]),
+                    ("Essa mata cobra tudo da gente.", PALETTE["muted"]),
+                    ("So nao me deixa sem rumo, chefe.", PALETTE["muted"]),
+                )
+            )
+        return lines
+
+    def trigger_survivor_bark(
+        self,
+        survivor: Survivor,
+        text: str,
+        color: tuple[int, int, int],
+        *,
+        duration: float = 2.8,
+    ) -> None:
+        survivor.bark_text = text
+        survivor.bark_color = color
+        survivor.bark_timer = duration
+        survivor.bark_cooldown = self.random.uniform(5.0, 10.0)
+        if hasattr(self, "add_chat_message"):
+            self.add_chat_message(survivor.name, text, color, source="npc")
+
+    def survivors_react_to_event(self, event: DynamicEvent, *, resolved: bool | None = None) -> None:
+        living = [survivor for survivor in self.living_survivors() if survivor.distance_to(event.pos) < 240]
+        if not living:
+            living = self.living_survivors()
+        if not living:
+            return
+        self.random.shuffle(living)
+        event_reactions = {
+            "incendio": ("Resolveu o fogo!", PALETTE["heal"]) if resolved else ("Fogo no campo!", PALETTE["danger_soft"]),
+            "doenca": ("Ele vai segurar.", PALETTE["heal"]) if resolved else ("A febre pegou feio.", PALETTE["danger_soft"]),
+            "fuga": ("Ele voltou pro anel.", PALETTE["morale"]) if resolved else ("A mata engoliu ele.", PALETTE["danger_soft"]),
+            "desercao": ("Ainda ficamos inteiros.", PALETTE["morale"]) if resolved else ("Perdemos mais um.", PALETTE["danger_soft"]),
+            "abrigo": ("Tem mais um no fogo.", PALETTE["morale"]) if resolved else ("Ele seguiu sozinho.", PALETTE["muted"]),
+            "expedicao": ("A trilha respondeu.", PALETTE["heal"]) if resolved else ("A rota ficou pior.", PALETTE["danger_soft"]),
+            "faccao": ("Eles vao lembrar disso.", PALETTE["accent_soft"]) if resolved else ("Ninguem sai limpo disso.", PALETTE["muted"]),
+            "alarme": ("Linha segura por enquanto.", PALETTE["heal"]) if resolved else ("Eles acharam a cerca.", PALETTE["danger_soft"]),
+        }
+        text, color = event_reactions.get(event.kind, ("Segura firme.", PALETTE["text"]))
+        for survivor in living[:2]:
+            self.trigger_survivor_bark(survivor, text, color, duration=2.4)
+
+    def update_survivor_barks(self, dt: float) -> None:
+        self.bark_timer = max(0.0, getattr(self, "bark_timer", 0.0) - dt)
+        if self.bark_timer > 0:
+            return
+        candidates = [
+            survivor
+            for survivor in self.living_survivors()
+            if survivor.bark_timer <= 0
+            and survivor.bark_cooldown <= 0
+            and self.player.distance_to(survivor.pos) < 240
+        ]
+        if not candidates:
+            self.bark_timer = self.random.uniform(1.6, 3.2)
+            return
+        weighted = sorted(
+            candidates,
+            key=lambda survivor: (
+                self.dynamic_event_for_survivor(survivor) is None,
+                survivor.insanity,
+                -survivor.trust_leader,
+                -survivor.morale,
+            ),
+        )
+        chosen = weighted[0]
+        text, color = self.random.choice(self.survivor_bark_options(chosen))
+        self.trigger_survivor_bark(chosen, text, color)
+        self.bark_timer = self.random.uniform(2.8, 5.8)
 
     def average_trust(self) -> float:
         alive = [survivor.trust_leader for survivor in self.survivors if survivor.is_alive()]
@@ -2250,6 +2389,10 @@ class WorldMixin:
         self.dynamic_event_cooldown = self.random.uniform(18.0, 30.0)
         self.set_event_message(label, duration=max(5.0, min(8.0, timer * 0.5)))
         self.spawn_floating_text(label.lower(), pos, PALETTE["danger_soft"] if urgency > 0.55 else PALETTE["morale"])
+        if kind in {"incendio", "alarme", "expedicao", "fuga", "desercao"}:
+            burst_color = PALETTE["danger_soft"] if kind != "expedicao" else PALETTE["accent_soft"]
+            self.impact_burst(pos, burst_color, radius=12, shake=0.7, ember_count=2, smoky=kind == "incendio")
+        self.survivors_react_to_event(event)
         return event
 
     def choose_fire_site(self) -> tuple[Vector2, str, int | None, str]:
@@ -2293,6 +2436,16 @@ class WorldMixin:
                     "incendio",
                     0.26 + self.weather_strength * 0.24,
                     {"pos": fire_pos, "site_kind": site_kind, "building_uid": building_uid, "site_label": site_label},
+                )
+            )
+
+        if self.is_night and self.barricades and (self.weakest_barricade_health() < 68 or len(self.zombies) >= 4 or getattr(self, "horde_active", False)):
+            weakest = min(self.barricades, key=lambda barricade: barricade.health / max(1.0, barricade.max_health))
+            candidates.append(
+                (
+                    "alarme",
+                    0.24 + (1.0 - weakest.health / max(1.0, weakest.max_health)) * 0.4 + (0.18 if getattr(self, "horde_active", False) else 0.0),
+                    {"pos": Vector2(weakest.pos), "angle": weakest.angle},
                 )
             )
 
@@ -2454,6 +2607,24 @@ class WorldMixin:
                     "hardline": scenario["hardline"],
                 },
             )
+        elif kind == "alarme":
+            angle = float(payload["angle"])
+            if -0.75 <= angle <= 0.75:
+                edge = "leste"
+            elif 0.75 < angle < 2.35:
+                edge = "sul"
+            elif -2.35 < angle < -0.75:
+                edge = "norte"
+            else:
+                edge = "oeste"
+            self.spawn_dynamic_event(
+                "alarme",
+                f"Alarme: pancadas vieram da cerca {edge} e a linha tremeu.",
+                Vector2(payload["pos"]),
+                timer=20.0,
+                urgency=0.78,
+                data={"edge": edge, "tick": 1.2},
+            )
 
     def resolve_dynamic_event(self, event: DynamicEvent, *, accepted: bool = True) -> bool:
         if event.resolved:
@@ -2483,7 +2654,23 @@ class WorldMixin:
         elif event.kind == "incendio":
             self.set_event_message("O incendio foi contido antes de comer a estrutura.", duration=5.2)
             self.spawn_floating_text("fogo controlado", event.pos, PALETTE["heal"])
-            self.emit_embers(event.pos, 10, smoky=True)
+            self.impact_burst(event.pos, PALETTE["heal"], radius=16, shake=1.4, ember_count=10, smoky=True)
+
+        elif event.kind == "alarme":
+            nearest = self.closest_barricade(event.pos)
+            if nearest:
+                nearest.repair(10)
+            for zombie in self.zombies:
+                if zombie.pos.distance_to(event.pos) < 140:
+                    zombie.stagger = max(zombie.stagger, 0.16)
+                    zombie.health -= 8
+            for survivor in self.living_survivors():
+                if survivor.distance_to(event.pos) < 220:
+                    survivor.morale = clamp(survivor.morale + 2.0, 0, 100)
+                    self.adjust_trust(survivor, 1.8)
+            self.set_event_message(f"Voce respondeu ao alarme da cerca {event.data.get('edge', 'externa')} e a linha segurou.", duration=5.6)
+            self.spawn_floating_text("linha segurou", event.pos, PALETTE["heal"])
+            self.impact_burst(event.pos, PALETTE["heal"], radius=14, shake=1.2, ember_count=6, smoky=True)
 
         elif event.kind == "fuga":
             target = next((survivor for survivor in self.survivors if survivor.name == event.target_name and survivor.is_alive()), None)
@@ -2583,6 +2770,7 @@ class WorldMixin:
             self.spawn_floating_text(self.faction_label(faction).lower(), event.pos, text_color)
 
         event.resolved = True
+        self.survivors_react_to_event(event, resolved=True)
         self.active_dynamic_events = []
         self.dynamic_event_cooldown = self.random.uniform(18.0, 34.0)
         return True
@@ -2618,7 +2806,19 @@ class WorldMixin:
                 self.wood = max(0, self.wood - 3)
                 self.scrap = max(0, self.scrap - 3)
                 self.set_event_message("A oficina perdeu material depois do incendio.", duration=5.8)
-            self.screen_shake = max(self.screen_shake, 4.4)
+            self.impact_burst(event.pos, PALETTE["danger_soft"], radius=18, shake=4.4, ember_count=10, smoky=True)
+        elif event.kind == "alarme":
+            nearest = self.closest_barricade(event.pos)
+            if nearest:
+                nearest.health = clamp(nearest.health - 26, 0.0, nearest.max_health)
+            for _ in range(2 + (1 if getattr(self, "horde_active", False) else 0)):
+                self.spawn_forest_ambient_zombie(anchor=Vector2(event.pos), radius=120)
+            for survivor in self.living_survivors():
+                if survivor.distance_to(event.pos) < 220:
+                    survivor.insanity = clamp(survivor.insanity + 8, 0, 100)
+                    survivor.morale = clamp(survivor.morale - 5, 0, 100)
+            self.set_event_message(f"O alarme estourou tarde demais e a cerca {event.data.get('edge', 'externa')} cedeu sob pancada.", duration=5.8)
+            self.impact_burst(event.pos, PALETTE["danger_soft"], radius=20, shake=4.0, ember_count=8, smoky=True)
         elif event.kind == "fuga":
             target = next((survivor for survivor in self.survivors if survivor.name == event.target_name and survivor.is_alive()), None)
             if target:
@@ -2647,6 +2847,7 @@ class WorldMixin:
             self.adjust_faction_standing(faction, -4.0)
             self.set_event_message(f"{self.faction_label(faction)} foi embora levando o impasse na memoria.", duration=5.0)
 
+        self.survivors_react_to_event(event, resolved=False)
         self.active_dynamic_events = []
         self.dynamic_event_cooldown = self.random.uniform(20.0, 34.0)
 
@@ -2678,6 +2879,16 @@ class WorldMixin:
                     if str(event.data.get("site_kind")) == "kitchen":
                         self.food = max(0, self.food - 1)
                 self.screen_shake = max(self.screen_shake, 1.4)
+            else:
+                event.data["tick"] = tick
+        elif event.kind == "alarme":
+            tick = float(event.data.get("tick", 0.0)) - dt
+            if tick <= 0:
+                event.data["tick"] = self.random.uniform(0.8, 1.4)
+                self.impact_burst(event.pos, PALETTE["danger_soft"], radius=9, shake=0.65, ember_count=2, smoky=True)
+                for survivor in self.living_survivors():
+                    if survivor.distance_to(event.pos) < 220 and survivor.bark_cooldown <= 0:
+                        self.trigger_survivor_bark(survivor, "Segura essa cerca!", PALETTE["danger_soft"], duration=1.8)
             else:
                 event.data["tick"] = tick
         elif event.kind in {"fuga", "desercao"}:
@@ -2763,12 +2974,16 @@ class WorldMixin:
             zombie.camp_pressure = clamp((0.78 if pressure else 0.52) + center.distance_to(CAMP_CENTER) / 950, 0.25, 1.0)
             self.zombies.append(zombie)
 
-    def spawn_forest_ambient_zombie(self) -> None:
+    def spawn_forest_ambient_zombie(self, *, anchor: Vector2 | None = None, radius: float | None = None) -> None:
         angle = self.random.uniform(0, math.tau)
-        distance = self.random.uniform(260, 520)
-        pos = self.player.pos + angle_to_vector(angle) * distance
+        center = Vector2(anchor) if anchor is not None else Vector2(self.player.pos)
+        if radius is None:
+            distance = self.random.uniform(260, 520)
+        else:
+            distance = self.random.uniform(max(42.0, radius * 0.45), max(68.0, radius))
+        pos = center + angle_to_vector(angle) * distance
         zombie = Zombie(pos, self.day)
-        zombie.anchor = Vector2(pos)
+        zombie.anchor = Vector2(center)
         zombie.camp_pressure = clamp(pos.distance_to(CAMP_CENTER) / 900, 0.18, 0.72)
         self.zombies.append(zombie)
 
@@ -2908,28 +3123,63 @@ class WorldMixin:
         return self.random_resource_pos(min_distance, max_distance)
 
     def generate_tents(self) -> list[dict[str, Vector2 | float]]:
-        offsets = [
-            Vector2(-0.66, -0.58),
-            Vector2(-0.26, -0.6),
-            Vector2(0.18, -0.58),
-            Vector2(0.6, -0.54),
-            Vector2(0.68, -0.12),
-            Vector2(0.68, 0.28),
-            Vector2(0.56, 0.62),
-            Vector2(0.12, 0.66),
-            Vector2(-0.32, 0.64),
-            Vector2(-0.68, 0.56),
-            Vector2(-0.72, 0.12),
-            Vector2(-0.72, -0.28),
-            Vector2(-0.34, -0.08),
-            Vector2(0.2, -0.02),
-            Vector2(0.3, 0.3),
-            Vector2(-0.24, 0.24),
-        ]
+        if self.camp_level == 0:
+            offsets = [
+                Vector2(-0.78, -0.5),
+                Vector2(0.76, -0.5),
+                Vector2(0.82, -0.06),
+                Vector2(0.74, 0.38),
+                Vector2(0.56, 0.72),
+                Vector2(-0.56, 0.72),
+                Vector2(-0.78, 0.36),
+                Vector2(-0.82, -0.04),
+            ]
+        else:
+            offsets = [
+                Vector2(-0.66, -0.58),
+                Vector2(-0.26, -0.6),
+                Vector2(0.18, -0.58),
+                Vector2(0.6, -0.54),
+                Vector2(0.68, -0.12),
+                Vector2(0.68, 0.28),
+                Vector2(0.56, 0.62),
+                Vector2(0.12, 0.66),
+                Vector2(-0.32, 0.64),
+                Vector2(-0.68, 0.56),
+                Vector2(-0.72, 0.12),
+                Vector2(-0.72, -0.28),
+                Vector2(-0.34, -0.08),
+                Vector2(0.2, -0.02),
+                Vector2(0.3, 0.3),
+                Vector2(-0.24, 0.24),
+            ]
         tent_count = 8 + self.camp_level * 4
         tents = []
+        protected_sites = [
+            Vector2(self.bonfire_pos),
+            Vector2(self.stockpile_pos),
+            Vector2(self.kitchen_pos),
+            Vector2(self.workshop_pos),
+            Vector2(self.radio_pos),
+        ]
+        core_clearance = 92 if self.camp_level == 0 else 72
+        tent_spacing = 64 if self.camp_level == 0 else 56
+        inset = self.camp_half_size - 34
         for offset in offsets[:tent_count]:
             pos = CAMP_CENTER + Vector2(offset.x * self.camp_half_size, offset.y * self.camp_half_size)
+            for anchor in protected_sites:
+                direction = pos - anchor
+                distance = direction.length()
+                if 0 < distance < core_clearance:
+                    pos = anchor + direction.normalize() * core_clearance
+            for tent in tents:
+                other_pos = Vector2(tent["pos"])
+                direction = pos - other_pos
+                distance = direction.length()
+                if 0 < distance < tent_spacing:
+                    pos = other_pos + direction.normalize() * tent_spacing
+            pos.x = clamp(pos.x, CAMP_CENTER.x - inset, CAMP_CENTER.x + inset)
+            pos.y = clamp(pos.y, CAMP_CENTER.y - inset, CAMP_CENTER.y + inset)
             facing = CAMP_CENTER - pos
             angle = math.atan2(facing.y, facing.x) if facing.length_squared() > 0 else 0.0
             tents.append(

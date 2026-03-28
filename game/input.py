@@ -11,13 +11,16 @@ class InputState:
     move: Vector2 = field(default_factory=Vector2)
     mouse_screen: Vector2 = field(default_factory=Vector2)
     mouse_wheel_y: int = 0
+    text_input: str = ""
     sprint: bool = False
     attack_pressed: bool = False
     interact_pressed: bool = False
     alt_interact_pressed: bool = False
     confirm_pressed: bool = False
     cancel_pressed: bool = False
+    backspace_pressed: bool = False
     quit_requested: bool = False
+    chat_toggle_pressed: bool = False
     focus_slot: int | None = None
     build_menu_pressed: bool = False
     menu_up: bool = False
@@ -50,6 +53,10 @@ class InputSystem:
                     state.cancel_pressed = True
                 elif event.key in {pygame.K_RETURN, pygame.K_KP_ENTER}:
                     state.confirm_pressed = True
+                elif event.key == pygame.K_BACKSPACE:
+                    state.backspace_pressed = True
+                elif event.key in {pygame.K_t, pygame.K_SLASH}:
+                    state.chat_toggle_pressed = True
                 elif event.key in {pygame.K_UP, pygame.K_w}:
                     state.menu_up = True
                 elif event.key in {pygame.K_DOWN, pygame.K_s}:
@@ -61,6 +68,7 @@ class InputSystem:
                 elif event.key == pygame.K_SPACE:
                     state.confirm_pressed = True
                     state.attack_pressed = True
+                    state.text_input += " "
                 elif event.key == pygame.K_e:
                     state.interact_pressed = True
                 elif event.key == pygame.K_q:
@@ -85,6 +93,20 @@ class InputSystem:
                     state.focus_slot = 6
                 elif event.key == pygame.K_7:
                     state.focus_slot = 7
+                if event.unicode and event.unicode.isprintable() and event.key not in {
+                    pygame.K_RETURN,
+                    pygame.K_KP_ENTER,
+                    pygame.K_ESCAPE,
+                    pygame.K_BACKSPACE,
+                    pygame.K_TAB,
+                    pygame.K_UP,
+                    pygame.K_DOWN,
+                    pygame.K_LEFT,
+                    pygame.K_RIGHT,
+                    pygame.K_t,
+                    pygame.K_SLASH,
+                }:
+                    state.text_input += event.unicode
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 state.attack_pressed = True
             elif event.type == pygame.MOUSEWHEEL:

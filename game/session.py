@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import random
+import unicodedata
 from pathlib import Path
 
 import pygame
@@ -15,6 +16,7 @@ from .camera import CameraRig
 from .config import (
     CAMP_CENTER,
     FPS,
+    FOCUS_LABELS,
     MINUTES_PER_SECOND,
     PALETTE,
     SCREEN_HEIGHT,
@@ -73,8 +75,12 @@ class Game(WorldMixin, RenderMixin):
         self.tips_index = 0
         self.title_bg_phase = 0.0
         self.title_bg_spawn_timer = 8.0
+        self.bark_timer = 3.2
         self.society_panel_collapsed = False
         self.society_scroll = 0.0
+        self.chat_messages: list[dict[str, object]] = []
+        self.chat_scroll = 0.0
+        self.dialog_survivor_name: str | None = None
         self.title_setting_entries = (
             ("master_volume", "Volume Geral", 0.05, 0.0, 1.0),
             ("ambience_volume", "Ambiencia", 0.05, 0.0, 1.0),
@@ -86,6 +92,7 @@ class Game(WorldMixin, RenderMixin):
         self.audio.apply_settings(self.runtime_settings)
         self.refresh_title_actions()
         self.tutorial_pages = self.create_tutorial_pages()
+        self.seed_chat_log()
 
         self.player = Player(CAMP_CENTER + Vector2(20, 40))
         self.day = 1
@@ -256,6 +263,343 @@ class Game(WorldMixin, RenderMixin):
             },
         )
 
+    def normalize_chat_text(self, text: str) -> str:
+        normalized = unicodedata.normalize("NFD", text.lower())
+        return "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+
+    def seed_chat_log(self) -> None:
+        self.chat_messages = []
+        self.add_chat_message(
+            "radio",
+            "A clareira esta falando sozinha. Chegue perto de um morador e aperte E para conversar.",
+            PALETTE["accent_soft"],
+            source="system",
+        )
+        self.add_chat_message(
+            "radio",
+            "As vozes do campo passam por aqui, mas as ordens agora saem na conversa direta.",
+            PALETTE["muted"],
+            source="system",
+        )
+
+    def add_chat_message(
+        self,
+        speaker: str,
+        text: str,
+        color: tuple[int, int, int] | None = None,
+        *,
+        source: str = "system",
+    ) -> None:
+        clean_text = " ".join(str(text).strip().split())
+        if not clean_text:
+            return
+        entry = {
+            "speaker": str(speaker),
+            "text": clean_text,
+            "color": tuple(color or PALETTE["text"]),
+            "source": source,
+        }
+        if self.chat_messages and self.chat_messages[-1]["speaker"] == entry["speaker"] and self.chat_messages[-1]["text"] == entry["text"]:
+            return
+        self.chat_messages.append(entry)
+        self.chat_messages = self.chat_messages[-72:]
+        self.chat_scroll = 0.0
+
+    def chat_panel_layout(self) -> dict[str, pygame.Rect]:
+        panel = pygame.Rect(18, SCREEN_HEIGHT - 206, max(420, SCREEN_WIDTH - 420), 188)
+        header = pygame.Rect(panel.x + 14, panel.y + 10, panel.width - 28, 26)
+        viewport = pygame.Rect(panel.x + 14, panel.y + 42, panel.width - 36, 96)
+        scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)
+        buttons = []
+        button_width = (panel.width - 46) // 2
+        button_height = 24
+        top = viewport.bottom + 10
+        for index in range(4):
+            col = index % 2
+            row = index // 2
+            buttons.append(
+                pygame.Rect(
+                    panel.x + 14 + col * (button_width + 6),
+                    top + row * (button_height + 8),
+                    button_width,
+                    button_height,
+                )
+            )
+        return {
+            "panel": panel,
+            "header": header,
+            "viewport": viewport,
+            "scrollbar": scrollbar,
+            "buttons": buttons,
+        }
+
+    def chat_message_height(self, entry: dict[str, object], width: int) -> int:
+        speaker = str(entry.get("speaker", "radio"))
+        label = f"{speaker}: {entry.get('text', '')}"
+        lines = self.wrap_text_lines(self.ui_small_font, label, max(40, width))
+        return len(lines) * self.ui_small_font.get_linesize() + max(0, len(lines) - 1) * 2 + 8
+
+    def chat_content_height(self) -> int:
+        viewport_width = self.chat_panel_layout()["viewport"].width - 12
+        return sum(self.chat_message_height(entry, viewport_width) + 4 for entry in self.chat_messages)
+
+    def chat_max_scroll(self) -> float:
+        viewport = self.chat_panel_layout()["viewport"]
+        return max(0.0, float(self.chat_content_height() - viewport.height))
+
+    def clamp_chat_scroll(self) -> None:
+        self.chat_scroll = clamp(self.chat_scroll, 0.0, self.chat_max_scroll())
+
+    def adjust_chat_scroll(self, delta: float) -> None:
+        self.chat_scroll = clamp(self.chat_scroll + delta, 0.0, self.chat_max_scroll())
+
+    def directive_label(self, directive: str) -> str:
+        return {
+            "rest": "descanso",
+            "guard": "vigia",
+            "wood": "madeira",
+            "food": "comida",
+            "repair": "barricadas",
+            "cook": "cozinha",
+            "clinic": "enfermaria",
+            "fire": "fogueira",
+        }.get(directive, directive)
+
+    def directive_from_text(self, normalized_text: str) -> str | None:
+        if any(word in normalized_text for word in ("descansa", "descansar", "dorme", "dormir", "repousa")):
+            return "rest"
+        if any(word in normalized_text for word in ("vigia", "vigiar", "guarda", "guardar", "patrulh")):
+            return "guard"
+        if any(word in normalized_text for word in ("madeira", "toras", "lenha", "arvore", "arvores")):
+            return "wood"
+        if any(word in normalized_text for word in ("comida", "insumo", "forrage", "colhe", "coleta alimento")):
+            return "food"
+        if any(word in normalized_text for word in ("barricada", "barricadas", "repar", "reforc", "fortific", "cerca")):
+            return "repair"
+        if any(word in normalized_text for word in ("cozinha", "cozin", "panela", "refeic")):
+            return "cook"
+        if any(word in normalized_text for word in ("enfermaria", "cura", "curar", "trata", "remedio", "medic")):
+            return "clinic"
+        if any(word in normalized_text for word in ("fogueira", "fogo", "brasa")):
+            return "fire"
+        return None
+
+    def focus_from_text(self, normalized_text: str) -> str | None:
+        if "equilibr" in normalized_text or "balance" in normalized_text:
+            return "balanced"
+        if any(word in normalized_text for word in ("suprimento", "supply", "recurso", "estoque")):
+            return "supply"
+        if any(word in normalized_text for word in ("fortific", "defesa", "barricada", "vigia")):
+            return "fortify"
+        if any(word in normalized_text for word in ("moral", "descanso", "fogo", "cozinha", "calma")):
+            return "morale"
+        return None
+
+    def targeted_survivors_from_text(self, normalized_text: str) -> list[object]:
+        if any(word in normalized_text for word in ("todos", "todas", "grupo", "equipe", "acampamento", "geral")):
+            return [survivor for survivor in self.survivors if survivor.is_alive() and not self.is_survivor_on_expedition(survivor)]
+        matches = []
+        for survivor in self.survivors:
+            if not survivor.is_alive() or self.is_survivor_on_expedition(survivor):
+                continue
+            if self.normalize_chat_text(survivor.name) in normalized_text:
+                matches.append(survivor)
+        return matches
+
+    def focus_label_for_mode(self, mode: str) -> str:
+        return FOCUS_LABELS.get(mode, mode)
+
+    def active_dialog_survivor(self) -> object | None:
+        if not self.dialog_survivor_name:
+            return None
+        for survivor in self.survivors:
+            if (
+                survivor.name == self.dialog_survivor_name
+                and survivor.is_alive()
+                and not self.is_survivor_on_expedition(survivor)
+                and survivor.distance_to(self.player.pos) < 122
+            ):
+                return survivor
+        self.dialog_survivor_name = None
+        return None
+
+    def open_survivor_dialog(self, survivor: object) -> None:
+        self.dialog_survivor_name = getattr(survivor, "name", None)
+        self.add_chat_message("radio", f"{getattr(survivor, 'name', 'Morador')} te ouviu e esperou a ordem.", PALETTE["accent_soft"], source="system")
+
+    def close_survivor_dialog(self) -> None:
+        self.dialog_survivor_name = None
+
+    def survivor_role_directive(self, survivor: object) -> tuple[str, str]:
+        role = getattr(survivor, "role", "")
+        mapping = {
+            "lenhador": ("wood", "Puxa madeira"),
+            "batedora": ("food", "Busca comida"),
+            "artesa": ("repair", "Reforca a cerca"),
+            "cozinheiro": ("cook", "Segura a cozinha"),
+            "mensageiro": ("clinic", "Cuida dos feridos"),
+            "vigia": ("guard", "Segura a linha"),
+        }
+        return mapping.get(role, ("wood", "Ajuda no estoque"))
+
+    def conversation_options_for_survivor(self, survivor: object) -> list[dict[str, str]]:
+        role_directive, role_label = self.survivor_role_directive(survivor)
+        return [
+            {"label": "Como voce esta?", "action": "status"},
+            {"label": role_label, "action": role_directive},
+            {"label": "Fica de vigia", "action": "guard"},
+            {"label": "Vai descansar", "action": "rest"},
+        ]
+
+    def execute_survivor_dialog_action(self, survivor: object, action: str) -> None:
+        if action == "status":
+            text, color = self.random.choice(self.survivor_bark_options(survivor))
+            self.trigger_survivor_bark(survivor, text, color, duration=2.8)
+            survivor.morale = clamp(getattr(survivor, "morale", 50.0) + 2.4, 0, 100)
+            self.adjust_trust(survivor, 1.6)
+            self.audio.play_ui("focus")
+            return
+        if action in {"rest", "guard", "wood", "food", "repair", "cook", "clinic", "fire"}:
+            self.try_assign_directive(survivor, action, duration=150.0)
+            self.audio.play_ui("order")
+
+    def set_focus_from_chat(self, mode: str) -> None:
+        self.focus_mode = mode
+        color = {
+            "balanced": PALETTE["text"],
+            "supply": PALETTE["accent_soft"],
+            "fortify": PALETTE["heal"],
+            "morale": PALETTE["morale"],
+        }.get(mode, PALETTE["text"])
+        self.spawn_floating_text(f"foco: {self.focus_label_for_mode(mode).lower()}", self.player.pos, color)
+        self.add_chat_message("radio", f"Foco comunitario ajustado para {self.focus_label_for_mode(mode).lower()}.", color, source="system")
+
+    def try_assign_directive(self, survivor: object, directive: str, *, duration: float) -> bool:
+        if not getattr(survivor, "is_alive", lambda: False)() or self.is_survivor_on_expedition(survivor):
+            return False
+        compliance = 0.52 + getattr(survivor, "trust_leader", 50.0) / 110.0
+        if getattr(survivor, "has_trait", lambda _trait: False)("leal"):
+            compliance += 0.18
+        if getattr(survivor, "has_trait", lambda _trait: False)("teimoso"):
+            compliance -= 0.12
+        if getattr(survivor, "has_trait", lambda _trait: False)("paranoico") and directive not in {"guard", "repair"}:
+            compliance -= 0.08
+        accepted = self.random.random() <= clamp(compliance, 0.18, 0.96)
+        if not accepted:
+            text = self.random.choice(
+                (
+                    "Nao vou largar o que estou segurando agora.",
+                    "Essa ordem chegou tarde demais.",
+                    "Eu escutei, mas nao compro isso agora.",
+                )
+            )
+            self.trigger_survivor_bark(survivor, text, PALETTE["danger_soft"], duration=2.6)
+            self.adjust_trust(survivor, -0.8)
+            return False
+        survivor.leader_directive = directive
+        survivor.leader_directive_timer = duration
+        survivor.decision_timer = 0.0
+        self.adjust_trust(survivor, 1.2)
+        response = {
+            "rest": "Certo. Vou baixar a marcha.",
+            "guard": "To indo pra linha.",
+            "wood": "Vou puxar madeira.",
+            "food": "Vou atras de comida.",
+            "repair": "Ja to fechando a cerca.",
+            "cook": "Panela vai girar.",
+            "clinic": "Vou segurar os feridos.",
+            "fire": "Eu cuido do fogo.",
+        }.get(directive, "Recebido.")
+        self.trigger_survivor_bark(survivor, response, PALETTE["accent_soft"], duration=2.4)
+        return True
+
+    def issue_chat_order(self, targets: list[object], directive: str) -> bool:
+        if not targets:
+            return False
+        accepted = 0
+        for survivor in targets:
+            if self.try_assign_directive(survivor, directive, duration=138.0 if len(targets) == 1 else 96.0):
+                accepted += 1
+        if directive in {"wood", "food"}:
+            self.focus_mode = "supply"
+        elif directive in {"repair", "guard"}:
+            self.focus_mode = "fortify"
+        elif directive in {"rest", "cook", "clinic", "fire"}:
+            self.focus_mode = "morale"
+        label = self.directive_label(directive)
+        if accepted > 0:
+            self.add_chat_message(
+                "radio",
+                f"Ordem fechada: {accepted}/{len(targets)} seguiram para {label}.",
+                PALETTE["accent_soft"],
+                source="system",
+            )
+            self.audio.play_ui("order")
+            return True
+        self.add_chat_message("radio", f"Ninguem comprou a ordem de {label} agora.", PALETTE["danger_soft"], source="system")
+        self.audio.play_alert()
+        return True
+
+    def chat_status_report(self) -> None:
+        report = (
+            f"Dia {self.day}, {self.weather_label}, foco {self.focus_label_for_mode(self.focus_mode).lower()}, "
+            f"moral {self.average_morale():.0f}, insanidade {self.average_insanity():.0f}, "
+            f"toras {self.logs}, tabuas {self.wood}, insumos {self.food}, refeicoes {self.meals}, sucata {self.scrap}."
+        )
+        self.add_chat_message("radio", report, PALETTE["muted"], source="system")
+
+    def random_chat_reply(self, player_text: str) -> None:
+        living = [survivor for survivor in self.survivors if survivor.is_alive() and not self.is_survivor_on_expedition(survivor)]
+        if not living:
+            return
+        normalized = self.normalize_chat_text(player_text)
+        if "obrig" in normalized:
+            survivor = max(living, key=lambda item: item.trust_leader)
+            self.trigger_survivor_bark(survivor, "A gente segue junto, chefe.", PALETTE["heal"], duration=2.6)
+            return
+        if "quem" in normalized or "ai" in normalized:
+            survivor = max(living, key=lambda item: item.morale)
+            self.trigger_survivor_bark(survivor, "Ainda tem gente de pe aqui.", PALETTE["text"], duration=2.6)
+            return
+        stressed = max(living, key=lambda item: item.insanity + item.exhaustion * 0.4)
+        self.trigger_survivor_bark(stressed, self.random.choice(self.survivor_bark_options(stressed))[0], PALETTE["muted"], duration=2.4)
+
+    def submit_chat_message(self, text: str) -> None:
+        clean_text = " ".join(text.strip().split())
+        if not clean_text:
+            return
+        self.add_chat_message("chefe", clean_text, PALETTE["text"], source="player")
+        normalized = self.normalize_chat_text(clean_text)
+        if any(word in normalized for word in ("ajuda", "comando", "comandos", "ordens")):
+            self.add_chat_message(
+                "radio",
+                "Exemplos: 'todos vigia', 'todos madeira', 'ravi descansa', 'foco moral', 'como estamos?'.",
+                PALETTE["accent_soft"],
+                source="system",
+            )
+            self.audio.play_ui("focus")
+            return
+        if "como estamos" in normalized or "status" in normalized or "situacao" in normalized or "relatorio" in normalized:
+            self.chat_status_report()
+            self.audio.play_ui("focus")
+            return
+        directive = self.directive_from_text(normalized)
+        targets = self.targeted_survivors_from_text(normalized)
+        if directive and targets:
+            self.issue_chat_order(targets, directive)
+            return
+        if normalized.startswith("foco ") or "foco" in normalized:
+            focus_mode = self.focus_from_text(normalized)
+            if focus_mode:
+                self.set_focus_from_chat(focus_mode)
+                self.audio.play_ui("focus")
+                return
+        if directive and any(word in normalized for word in ("todos", "todas", "grupo", "equipe", "geral")):
+            self.issue_chat_order(self.targeted_survivors_from_text(normalized), directive)
+            return
+        self.random_chat_reply(clean_text)
+        self.audio.play_ui("focus")
+
     def save_exists(self) -> bool:
         return SAVE_FILE.exists()
 
@@ -284,6 +628,8 @@ class Game(WorldMixin, RenderMixin):
             "version": 1,
             "seed": self.seed,
             "runtime_settings": dict(self.runtime_settings),
+            "chat_messages": list(self.chat_messages[-48:]),
+            "chat_scroll": self.chat_scroll,
             "scene": SceneId.GAMEPLAY,
             "day": self.day,
             "time_minutes": self.time_minutes,
@@ -428,6 +774,8 @@ class Game(WorldMixin, RenderMixin):
                     "on_expedition": survivor.on_expedition,
                     "expedition_downed": survivor.expedition_downed,
                     "expedition_attack_cooldown": survivor.expedition_attack_cooldown,
+                    "leader_directive": survivor.leader_directive,
+                    "leader_directive_timer": survivor.leader_directive_timer,
                 }
                 for survivor in self.survivors
             ],
@@ -510,6 +858,9 @@ class Game(WorldMixin, RenderMixin):
     def apply_loaded_data(self, data: dict[str, object]) -> None:
         self.runtime_settings.update({key: float(value) for key, value in dict(data.get("runtime_settings", {})).items()})
         self.audio.apply_settings(self.runtime_settings)
+        self.chat_messages = list(data.get("chat_messages", []))
+        self.chat_scroll = float(data.get("chat_scroll", 0.0))
+        self.dialog_survivor_name = None
         self.day = int(data.get("day", self.day))
         self.time_minutes = float(data.get("time_minutes", self.time_minutes))
         self.previous_night = bool(data.get("previous_night", self.previous_night))
@@ -682,6 +1033,8 @@ class Game(WorldMixin, RenderMixin):
             survivor.on_expedition = bool(saved.get("on_expedition", False))
             survivor.expedition_downed = bool(saved.get("expedition_downed", False))
             survivor.expedition_attack_cooldown = float(saved.get("expedition_attack_cooldown", 0.0))
+            survivor.leader_directive = saved.get("leader_directive")
+            survivor.leader_directive_timer = float(saved.get("leader_directive_timer", 0.0))
             survivor.state = "expedition" if survivor.on_expedition else "idle"
             survivor.state_label = "em expedicao" if survivor.on_expedition else "reorganizando"
             self.survivors.append(survivor)
@@ -756,6 +1109,9 @@ class Game(WorldMixin, RenderMixin):
         self.refresh_barricade_strength()
         self.assign_building_specialists()
         self.refresh_title_actions()
+        if not self.chat_messages:
+            self.seed_chat_log()
+        self.clamp_chat_scroll()
 
     def load_game(self) -> tuple[bool, str]:
         if not self.save_exists():
@@ -857,6 +1213,30 @@ class Game(WorldMixin, RenderMixin):
 
     def adjust_society_scroll(self, delta: float) -> None:
         self.society_scroll = clamp(self.society_scroll + delta, 0.0, self.society_max_scroll())
+
+    def handle_chat_panel_input(self) -> bool:
+        layout = self.chat_panel_layout()
+        mouse_pos = self.input_state.mouse_screen
+        panel_hit = layout["panel"].collidepoint(mouse_pos)
+        if self.input_state.mouse_wheel_y and panel_hit:
+            self.adjust_chat_scroll(-self.input_state.mouse_wheel_y * 36)
+            return True
+        if self.input_state.attack_pressed and panel_hit:
+            if self.chat_max_scroll() > 0 and layout["scrollbar"].collidepoint(mouse_pos):
+                track = layout["scrollbar"]
+                ratio = clamp((mouse_pos.y - track.y) / max(1, track.height), 0.0, 1.0)
+                self.chat_scroll = self.chat_max_scroll() * ratio
+                self.audio.play_ui("focus")
+                return True
+            survivor = self.active_dialog_survivor()
+            if survivor:
+                for rect, option in zip(layout["buttons"], self.conversation_options_for_survivor(survivor)):
+                    if rect.collidepoint(mouse_pos):
+                        self.execute_survivor_dialog_action(survivor, str(option["action"]))
+                        return True
+            return True
+
+        return False
 
     def handle_society_panel_input(self) -> bool:
         layout = self.society_panel_layout()
@@ -1040,6 +1420,10 @@ class Game(WorldMixin, RenderMixin):
             return
 
         if self.input_state.cancel_pressed:
+            if self.scenes.is_gameplay() and self.active_dialog_survivor():
+                self.close_survivor_dialog()
+                self.audio.play_ui("back")
+                return
             if self.build_menu_open:
                 self.build_menu_open = False
                 self.audio.play_ui("back")
@@ -1067,9 +1451,6 @@ class Game(WorldMixin, RenderMixin):
             return
 
         if not self.scenes.is_gameplay():
-            return
-
-        if self.handle_society_panel_input():
             return
 
         if self.input_state.load_pressed:
@@ -1102,6 +1483,12 @@ class Game(WorldMixin, RenderMixin):
                 or self.input_state.focus_slot is not None
             ):
                 self.wake_player("Voce acordou e retomou o controle da clareira.")
+            return
+
+        if self.handle_chat_panel_input():
+            return
+
+        if self.handle_society_panel_input():
             return
 
         if self.input_state.build_menu_pressed:
@@ -1177,6 +1564,7 @@ class Game(WorldMixin, RenderMixin):
         self.reveal_world_around_player()
         self.assign_building_specialists()
         self.update_dynamic_events(sim_dt)
+        self.update_survivor_barks(sim_dt)
         self.update_active_expedition(sim_dt)
         self.resolve_actor_camp_collision(self.player)
 
@@ -1257,6 +1645,7 @@ class Game(WorldMixin, RenderMixin):
             self.resolve_actor_camp_collision(survivor)
         for zombie in self.zombies:
             zombie.update(self, dt * 0.5)
+        self.update_survivor_barks(dt * 0.5)
         self.zombies = [zombie for zombie in self.zombies if zombie.is_alive()]
 
         for floating in list(self.floating_texts):

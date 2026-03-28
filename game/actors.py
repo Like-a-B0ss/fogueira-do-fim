@@ -113,6 +113,7 @@ class Player(Actor):
                 zombie.stagger = 0.18
                 zombie.pos += offset.normalize() * 18
                 hit_any = True
+                game.impact_burst(zombie.pos, PALETTE["danger_soft"], radius=14, shake=1.8, ember_count=2)
                 game.damage_pulses.append(
                     DamagePulse(Vector2(zombie.pos), 12, 0.28, PALETTE["danger_soft"])
                 )
@@ -146,13 +147,13 @@ class Player(Actor):
                 stored = game.add_resource_bundle({"logs": amount})
                 game.spawn_floating_text(game.bundle_summary(stored or {"logs": amount}), tree_pos, PALETTE["accent_soft"])
                 game.set_event_message("As arvores agora viram toras. Sem serraria, a madeira boa de construcao demora mais a chegar.", duration=4.8)
-                game.emit_embers(tree_pos, 4, smoky=True)
+                game.impact_burst(tree_pos, PALETTE["accent_soft"], radius=13, shake=1.0, ember_count=5, smoky=True)
                 game.audio.play_impact("wood")
             else:
                 progress = int(best_tree.get("effort_progress", 1))
                 required = int(best_tree.get("effort_required", 2))
                 game.spawn_floating_text(f"tronco {progress}/{required}", tree_pos + Vector2(0, -18), PALETTE["muted"])
-                game.emit_embers(tree_pos, 2, smoky=True)
+                game.impact_burst(tree_pos, PALETTE["wood"], radius=9, shake=0.45, ember_count=2, smoky=True)
                 game.audio.play_impact("wood")
 
     def perform_interaction(self, game: "Game", *, hardline: bool = False) -> None:
@@ -177,6 +178,12 @@ class Player(Actor):
                     game.audio.play_alert()
                 return
             if active_event.kind == "incendio" and self.distance_to(active_event.pos) < 112:
+                if game.resolve_dynamic_event(active_event):
+                    game.audio.play_interact("repair")
+                else:
+                    game.audio.play_alert()
+                return
+            if active_event.kind == "alarme" and self.distance_to(active_event.pos) < 116:
                 if game.resolve_dynamic_event(active_event):
                     game.audio.play_interact("repair")
                 else:
@@ -238,6 +245,7 @@ class Player(Actor):
                 game.wood -= 1
                 barricade.repair(24)
                 game.spawn_floating_text("barricada reforcada", barricade.pos, PALETTE["heal"])
+                game.impact_burst(barricade.pos, PALETTE["heal"], radius=11, shake=0.55, ember_count=2, smoky=True)
                 game.audio.play_interact()
                 acted = True
                 break
@@ -322,14 +330,9 @@ class Player(Actor):
             return
 
         for survivor in game.survivors:
-            if survivor.distance_to(self.pos) < best_distance:
-                survivor.morale = clamp(survivor.morale + 7, 0, 100)
-                survivor.energy = clamp(survivor.energy + 4, 0, 100)
-                trust_gain = 5.0 if survivor.has_trait("leal") else 3.2
-                if survivor.has_trait("teimoso"):
-                    trust_gain -= 1.0
-                game.adjust_trust(survivor, trust_gain)
-                game.spawn_floating_text("ordem firme", survivor.pos, PALETTE["accent_soft"])
+            if survivor.is_alive() and not game.is_survivor_on_expedition(survivor) and survivor.distance_to(self.pos) < best_distance:
+                game.open_survivor_dialog(survivor)
+                game.spawn_floating_text(f"falando com {survivor.name.lower()}", survivor.pos, PALETTE["accent_soft"])
                 game.audio.play_ui("order")
                 return
 
@@ -380,6 +383,12 @@ class Survivor(Actor):
         self.on_expedition = False
         self.expedition_downed = False
         self.expedition_attack_cooldown = 0.0
+        self.leader_directive: str | None = None
+        self.leader_directive_timer = 0.0
+        self.bark_text = ""
+        self.bark_timer = 0.0
+        self.bark_color = PALETTE["text"]
+        self.bark_cooldown = random.uniform(2.5, 5.5)
 
     def has_trait(self, trait: str) -> bool:
         return trait in self.traits
@@ -404,6 +413,11 @@ class Survivor(Actor):
         self.blink += dt * 3.0
         self.conflict_cooldown = max(0.0, self.conflict_cooldown - dt)
         self.bond_cooldown = max(0.0, self.bond_cooldown - dt)
+        self.bark_timer = max(0.0, self.bark_timer - dt)
+        self.bark_cooldown = max(0.0, self.bark_cooldown - dt)
+        self.leader_directive_timer = max(0.0, self.leader_directive_timer - dt)
+        if self.leader_directive_timer <= 0:
+            self.leader_directive = None
 
         hunger_rate = 1.9 if game.is_night else 1.2
         self.hunger = clamp(self.hunger + hunger_rate * dt, 0, 100)
@@ -470,6 +484,7 @@ class Survivor(Actor):
             zombie.stagger = 0.1
             self.attack_cooldown = 0.9
             self.state_label = "combatendo"
+            game.impact_burst(zombie.pos, PALETTE["accent_soft"], radius=10, shake=0.85, ember_count=1)
             game.damage_pulses.append(
                 DamagePulse(Vector2(zombie.pos), 10, 0.22, PALETTE["accent_soft"])
             )
@@ -547,6 +562,47 @@ class Survivor(Actor):
                 return
         if self.energy < 26 or self.health < 28 or self.exhaustion > 68:
             self.start_state("rest", self.home_pos)
+            return
+        directive = self.leader_directive if self.leader_directive_timer > 0 else None
+        if directive == "rest":
+            self.start_state("sleep" if game.is_night else "rest", self.home_pos)
+            return
+        if directive == "guard" and self.energy > 18:
+            if assigned_building and self.assigned_building_kind == "torre":
+                self.start_state("watchtower", assigned_building.pos, assigned_building)
+            else:
+                self.start_state("guard", self.guard_pos)
+            return
+        if directive == "wood":
+            node = game.closest_available_node("wood", self.pos)
+            if node:
+                target_pos = Vector2(node["pos"]) if isinstance(node, dict) else node.pos
+                self.start_state("gather_wood", target_pos, node)
+                return
+        if directive == "food":
+            node = game.closest_available_node("food", self.pos)
+            if node:
+                self.start_state("forage", node.pos, node)
+                return
+        if directive == "repair" and game.has_damaged_barricade() and game.wood > 0:
+            barricade = game.weakest_barricade()
+            if barricade:
+                self.start_state("repair", barricade.pos, barricade)
+                return
+        if directive == "cook":
+            if assigned_building and self.assigned_building_kind == "cozinha" and game.food >= 2 and game.available_fuel() > 0:
+                self.start_state("cookhouse", assigned_building.pos, assigned_building)
+                return
+            if game.food >= 1 and game.available_fuel() > 0:
+                self.start_state("cook", game.kitchen_pos)
+                return
+        if directive == "clinic":
+            infirmary = game.nearest_building_of_kind("enfermaria", self.pos)
+            if infirmary and (game.most_injured_actor() or game.herbs > 0):
+                self.start_state("clinic", infirmary.pos, infirmary)
+                return
+        if directive == "fire" and game.available_fuel() > 0:
+            self.start_state("tend_fire", game.bonfire_pos)
             return
         if game.is_night:
             if assigned_building and self.assigned_building_kind == "torre" and self.name in game.active_guard_names() and self.energy > 22:

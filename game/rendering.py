@@ -262,15 +262,23 @@ class RenderMixin:
             inner = (
                 (222, 148, 98)
                 if event.kind == "incendio"
-                else ((176, 210, 126) if event.kind == "abrigo" else ((124, 176, 220) if event.kind == "expedicao" else ring_color))
+                else (
+                    (214, 184, 96)
+                    if event.kind == "alarme"
+                    else ((176, 210, 126) if event.kind == "abrigo" else ((124, 176, 220) if event.kind == "expedicao" else ring_color))
+                )
             )
             pygame.draw.circle(self.screen, inner, pos, 5)
             if self.player.distance_to(event.pos) < 170:
-                detail = event.label
+                detail = self.fit_text_to_width(self.small_font, event.label, 294)
                 if event.kind == "faccao":
                     humane = dict(event.data.get("humane", {}))
                     hardline = dict(event.data.get("hardline", {}))
-                    detail = f"E {humane.get('title', 'ceder')}  |  Q {hardline.get('title', 'pressionar')}"
+                    detail = self.fit_text_to_width(
+                        self.small_font,
+                        f"E {humane.get('title', 'ceder')}  |  Q {hardline.get('title', 'pressionar')}",
+                        294,
+                    )
                 label = self.small_font.render(detail, True, PALETTE["text"])
                 box = pygame.Rect(0, 0, min(320, label.get_width() + 12), label.get_height() + 6)
                 box.midbottom = (pos.x, pos.y - 18)
@@ -909,6 +917,7 @@ class RenderMixin:
                 else:
                     self.draw_character(pos, survivor.color, (52, 44, 36), entity.radius, survivor.name)
                 self.draw_status_orb(pos, survivor)
+                self.draw_survivor_bark(pos, survivor)
             else:
                 zombie: Zombie = entity
                 if getattr(zombie, "is_boss", False):
@@ -989,6 +998,31 @@ class RenderMixin:
             pygame.draw.rect(self.screen, (18, 24, 26), box, border_radius=8)
             pygame.draw.rect(self.screen, PALETTE["ui_line"], box, 1, border_radius=8)
             self.screen.blit(text, text.get_rect(center=box.center))
+
+    def draw_survivor_bark(self, pos: Vector2, survivor: Survivor) -> None:
+        bark_text = str(getattr(survivor, "bark_text", "")).strip()
+        bark_timer = float(getattr(survivor, "bark_timer", 0.0))
+        if not bark_text or bark_timer <= 0:
+            return
+        color = tuple(getattr(survivor, "bark_color", PALETTE["text"]))
+        alpha_ratio = clamp(bark_timer / 2.6, 0, 1)
+        lines = self.wrap_text_lines(self.ui_small_font, bark_text, 140)
+        text_surfaces = [self.ui_small_font.render(line, True, color) for line in lines]
+        width = max(surface.get_width() for surface in text_surfaces) + 18
+        height = len(text_surfaces) * self.ui_small_font.get_linesize() + max(0, len(text_surfaces) - 1) * 2 + 12
+        bubble = pygame.Surface((width, height + 7), pygame.SRCALPHA)
+        bubble_rect = pygame.Rect(0, 0, width, height)
+        pygame.draw.rect(bubble, (14, 18, 20, int(210 * alpha_ratio)), bubble_rect, border_radius=11)
+        pygame.draw.rect(bubble, (*color, int(136 * alpha_ratio)), bubble_rect, 1, border_radius=11)
+        tail = [(width // 2 - 8, height - 2), (width // 2 + 8, height - 2), (width // 2, height + 7)]
+        pygame.draw.polygon(bubble, (14, 18, 20, int(210 * alpha_ratio)), tail)
+        pygame.draw.polygon(bubble, (*color, int(120 * alpha_ratio)), tail, 1)
+        text_y = 6
+        for surface in text_surfaces:
+            bubble.blit(surface, surface.get_rect(center=(width // 2, text_y + surface.get_height() // 2)))
+            text_y += self.ui_small_font.get_linesize() + 2
+        bubble_pos = pos - Vector2(width / 2, 58 + height)
+        self.screen.blit(bubble, bubble_pos)
 
     def draw_status_orb(self, pos: Vector2, survivor: Survivor) -> None:
         color = PALETTE["heal"]
@@ -1142,6 +1176,80 @@ class RenderMixin:
         vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         pygame.draw.rect(vignette, (0, 0, 0, int(58 * night_factor)), vignette.get_rect(), border_radius=22)
         self.screen.blit(vignette, (0, 0))
+
+    def draw_chat_panel(self) -> None:
+        layout = self.chat_panel_layout()
+        panel = layout["panel"]
+        viewport = layout["viewport"]
+        self.draw_panel(panel)
+        survivor = self.active_dialog_survivor()
+        if survivor:
+            title = self.heading_font.render(f"Falando com {survivor.name}", True, PALETTE["text"])
+            subtitle_text = self.fit_text_to_width(
+                self.ui_small_font,
+                f"{survivor.role}  |  {survivor.primary_trait()}  |  estado {survivor.state_label}",
+                panel.width - 180,
+            )
+        else:
+            title = self.heading_font.render("Vozes da Clareira", True, PALETTE["text"])
+            subtitle_text = "Aproxime-se de um morador e aperte E para conversar direto."
+        subtitle = self.ui_small_font.render(subtitle_text, True, PALETTE["muted"])
+        self.screen.blit(title, (panel.x + 14, panel.y + 8))
+        self.screen.blit(subtitle, (panel.x + 162, panel.y + 13))
+
+        previous_clip = self.screen.get_clip()
+        self.screen.set_clip(viewport)
+        y = viewport.y - int(self.chat_max_scroll() - self.chat_scroll)
+        for entry in self.chat_messages:
+            speaker = str(entry.get("speaker", "radio"))
+            label = f"{speaker}: {entry.get('text', '')}"
+            color = tuple(entry.get("color", PALETTE["text"]))
+            lines = self.wrap_text_lines(self.ui_small_font, label, viewport.width - 18)
+            line_height = self.ui_small_font.get_linesize()
+            block_height = len(lines) * line_height + max(0, len(lines) - 1) * 2 + 8
+            if y + block_height >= viewport.y - 8 and y <= viewport.bottom + 8:
+                for index, line in enumerate(lines):
+                    rendered = self.ui_small_font.render(line, True, color if index == 0 else PALETTE["muted"])
+                    self.screen.blit(rendered, (viewport.x + 4, y + index * (line_height + 2)))
+            y += block_height + 4
+        self.screen.set_clip(previous_clip)
+        pygame.draw.rect(self.screen, (18, 22, 24), viewport, 1, border_radius=10)
+
+        scroll_track = layout["scrollbar"]
+        pygame.draw.rect(self.screen, (28, 36, 38), scroll_track, border_radius=6)
+        max_scroll = self.chat_max_scroll()
+        if max_scroll > 0:
+            total_height = max(viewport.height, self.chat_content_height())
+            thumb_height = max(26, int(viewport.height * (viewport.height / max(1, total_height))))
+            thumb_range = max(0, scroll_track.height - thumb_height)
+            thumb_ratio = self.chat_scroll / max_scroll if max_scroll > 0 else 0.0
+            thumb = pygame.Rect(
+                scroll_track.x,
+                scroll_track.y + int(thumb_range * thumb_ratio),
+                scroll_track.width,
+                thumb_height,
+            )
+            pygame.draw.rect(self.screen, PALETTE["accent_soft"], thumb, border_radius=6)
+
+        mouse_pos = self.input_state.mouse_screen
+        if survivor:
+            for rect, option in zip(layout["buttons"], self.conversation_options_for_survivor(survivor)):
+                hover = rect.collidepoint(mouse_pos)
+                pygame.draw.rect(self.screen, (42, 54, 58) if hover else (30, 38, 41), rect, border_radius=9)
+                pygame.draw.rect(self.screen, PALETTE["accent_soft"] if hover else PALETTE["ui_line"], rect, 1, border_radius=9)
+                label = self.ui_small_font.render(
+                    self.fit_text_to_width(self.ui_small_font, str(option["label"]), rect.width - 10),
+                    True,
+                    PALETTE["text"],
+                )
+                self.screen.blit(label, label.get_rect(center=rect.center))
+        else:
+            hint = self.ui_small_font.render(
+                "O historico do campo segue aqui. A conversa e aberta morador por morador.",
+                True,
+                PALETTE["muted"],
+            )
+            self.screen.blit(hint, (panel.x + 16, panel.bottom - 28))
 
     def draw_hud(self) -> None:
         ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 260, 16, 520, 64)
@@ -1330,24 +1438,27 @@ class RenderMixin:
                 line_gap=2,
             ) + 10
 
-        hint_panel = pygame.Rect(18, SCREEN_HEIGHT - 138, SCREEN_WIDTH - 36, 120)
-        self.draw_panel(hint_panel)
+        self.draw_chat_panel()
+
+        chat_panel = self.chat_panel_layout()["panel"]
+        info_panel = pygame.Rect(chat_panel.right + 18, chat_panel.y, SCREEN_WIDTH - chat_panel.right - 36, chat_panel.height)
+        self.draw_panel(info_panel)
         controls = (
-            "WASD mover  |  Shift correr  |  Clique/espaco atacar  |  E agir/dormir  |  Q decisao dura  |  B construir(1-7)  |  F5 salvar  |  F9 carregar",
+            "WASD mover  |  Shift correr  |  Clique/espaco atacar  |  E agir/dormir  |  Q decisao dura  |  B construir(1-7)",
             self.event_message if self.event_timer > 0 else "Explore os sinais do mapa, mantenha a fogueira viva e nao deixe a sociedade quebrar.",
             "Qualquer toque acorda o chefe."
             if self.player_sleeping
-            else (self.dynamic_event_summary() or self.expedition_status_text(short=False) or "Sem crise aguda. O campo segue respirando entre uma pressao e outra."),
+            else (self.dynamic_event_summary() or self.expedition_status_text(short=False) or "F5 salva, F9 carrega. O radio embaixo aceita ordens e perguntas."),
         )
-        line_y = hint_panel.y + 14
+        line_y = info_panel.y + 14
         for index, line in enumerate(controls):
             line_y = self.draw_wrapped_text(
                 self.ui_small_font if index == 0 else self.body_font,
                 line,
                 PALETTE["text"] if index == 0 else (PALETTE["danger_soft"] if index == 2 and self.active_dynamic_events else PALETTE["muted"]),
-                hint_panel.x + 18,
+                info_panel.x + 18,
                 line_y,
-                hint_panel.width - 36,
+                info_panel.width - 36,
                 line_gap=2,
             ) + 6
 
@@ -1531,6 +1642,8 @@ class RenderMixin:
                 directives.append("Aproxime-se do doente com E e use a enfermaria para segurar a febre.")
             elif active_event.kind == "incendio":
                 directives.append("Corra ate o foco do incendio e interaja antes que a estrutura ceda.")
+            elif active_event.kind == "alarme":
+                directives.append("Chegue na cerca que tremeu e use E para segurar a linha antes do rombo.")
             elif active_event.kind == "expedicao":
                 directives.append("Siga o foguete vermelho na trilha e entregue socorro antes da equipe quebrar.")
             elif active_event.kind == "faccao":
