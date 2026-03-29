@@ -14,12 +14,12 @@ Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de u
 - O mapa agora inclui nevoa de exploracao e pontos de interesse ligados aos biomas.
 - O mundo agora continua gerando para alem da clareira, com chunks procedurais conforme voce avanca.
 - O audio agora gera efeitos, passos por terreno, clima, gemidos de horda e trilha procedural em runtime.
-- O acampamento agora tem formato quadrado, pode crescer pela oficina e abre novas camas, barracas e linhas de barricada.
+- O acampamento agora tem formato quadrado e pode crescer pela oficina para abrir mais espaco util de circulacao e construcao.
 - Moradores seguem ciclos de sono, revezam vigia e novos sobreviventes podem chegar quando houver espaco e estabilidade.
-- Barracas e barracas extras agora contam como leitos fisicos com colisao, e o chefe tambem pode dormir para acelerar as horas enquanto o campo tenta se manter sozinho.
-- As barracas agora foram redesenhadas como abrigos mais completos, com leitura visual melhor no acampamento e uso claro como ponto de descanso.
+- As barracas predefinidas contam como leitos fisicos com colisao, continuam fixas quando a base cresce e o chefe tambem pode dormir para acelerar as horas enquanto o campo tenta se manter sozinho.
+- As barracas foram redesenhadas como abrigos mais completos, com leitura visual melhor no acampamento e uso claro como ponto de descanso.
 - O jogo agora mostra prompts contextuais perto do alvo interagivel mais proximo, indicando exatamente o que `E` ou `Q` vao fazer.
-- O jogo agora tem menu de construcao com barracas extras, torres, hortas e anexos de oficina.
+- O jogo agora tem menu de construcao com barracas, torres, hortas, anexos, serrarias, cozinhas e enfermarias.
 - Vigias, cozinheiros e artesas podem se especializar automaticamente em predios do acampamento.
 - Madeira agora vem de arvores reais do mapa: cortar perto do acampamento desmata a regiao e empurra a coleta cada vez mais para longe.
 - Novos biomas e variantes de recursos aparecem longe do campo, incluindo cinzas frias, bosque gigante e pedreira morta.
@@ -31,8 +31,10 @@ Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de u
 - A Fase 3 agora traz crises dinamicas no proprio acampamento, incluindo fuga, doenca, incendio, desercao e pedido de abrigo.
 - A Fase 4 agora introduz faccoes humanas com reputacao persistente e encontros morais de resposta humana ou pragmatica.
 - A Fase 5 agora abre o mundo em regioes nomeadas persistentes, com bosses de zona ligados ao bioma e exploracao realmente sem borda pratica.
+- Eventos de abrigo e faccao agora trazem visitantes fisicos nos lados do acampamento, com presenca visual e fala curta quando o lider se aproxima.
 - Zumbis agora ficaram mais agressivos e variados: podem surgir na floresta durante o dia, rondar a base, chamar reforcos, formar hordas com boss e aparecer com perfis mais perigosos.
 - A sociedade agora tambem pode quebrar por dentro: moradores acumulam insanidade, rondam a base sob pressao e exigem mais presenca, fogo e estabilidade para nao desandar.
+- O lider agora pode usar diretamente estruturas erguidas na base, como serraria, cozinha, horta, anexo, torre e enfermaria.
 
 ## Controles
 
@@ -40,7 +42,8 @@ Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de u
 - `Shift`: correr
 - `Clique esquerdo` ou `Espaco`: atacar
 - `Clique esquerdo` perto de arvores: cortar e recolher madeira
-- `E`: interagir com recursos, barricadas, fogueira ou sobreviventes
+- `E`: interagir com o alvo atual, priorizando o objeto ou personagem sob o mouse quando estiver ao alcance
+- `Botao direito`: interagir diretamente com o alvo sob o mouse no acampamento
 - `E` perto de uma barraca: dormir e acelerar o tempo; qualquer comando acorda o chefe
 - `E` perto de uma crise ativa: responder ao evento antes que o tempo acabe
 - `Q` perto de uma faccao: escolher a resposta dura ou pragmatica na decisao moral
@@ -59,7 +62,7 @@ Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de u
 - `Setas` ou `WASD` na tela inicial: navegar pelo menu e pelas configuracoes
 - `Mouse` na tela inicial: clicar em `Continuar`, `Novo Jogo`, `Sair` e ajustar configuracoes
 - `Novo Jogo`: abre uma sequencia curta de dicas antes da partida; `Enter` avanca e `Esc` pula
-- `Esc`: voltar para a tela inicial
+- `Esc`: abrir a confirmacao de saida, com opcao de salvar antes de fechar
 
 ## Loop do jogo
 
@@ -72,9 +75,11 @@ Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de u
 - Derrube arvores para obter toras e aceite que a clareira vai ficando mais vazia com o tempo.
 - Passe as toras pela serraria para transformar volume bruto em tabuas de construcao.
 - Monte cozinhas para converter insumos em refeicoes e enfermarias para transformar ervas em cura.
+- Use voce mesmo as estruturas da base quando precisar acelerar a producao: a oficina corta tabuas no comeco, a serraria processa toras, a cozinha monta refeicoes, a horta rende colheita, o anexo vira reparo rapido, a torre dispara na defesa e a enfermaria trata ou prepara remedios.
 - Repare barricadas danificadas antes do anoitecer.
 - Abra o menu de construcao para erguer barracas, torres, hortas, anexos, serrarias, cozinhas e enfermarias.
 - Use as barracas como leitos reais: moradores dormem nelas, voce tambem pode deitar e deixar a sociedade se virar por algumas horas.
+- Expanda a base para ganhar area util, nao para gerar barracas automaticas; os abrigos iniciais ficam fixos e as barricadas preservam os upgrades de spikes.
 - Use o foco comunitario para orientar a prioridade diaria da IA.
 - Explore sinais do mapa para ativar eventos de bioma e descobrir recursos raros.
 - Atravesse regioes nomeadas, leia a HUD de zona e prepare o grupo antes de despertar um boss territorial.
@@ -96,6 +101,7 @@ python main.py
 ## Estrutura
 
 - `main.py`: ponto de entrada do jogo
+- `game_settings.json`: arquivo central de configuracoes editavel, com parametros de tela, HUD, clima, ritmo do jogo e recursos iniciais
 - `game/config.py`: constantes, paleta e helpers
 - `game/models.py`: dataclasses do mundo
 - `game/input.py`: leitura e mapeamento de controles
@@ -115,3 +121,20 @@ Util para validar inicializacao sem jogar manualmente:
 $env:SDL_VIDEODRIVER="dummy"
 python main.py --smoke-test
 ```
+
+## Configuracao Externa
+
+O jogo agora carrega parametros principais a partir de `game_settings.json`.
+
+Voce pode ajustar por arquivo:
+
+- tela, resolucao, `fullscreen` e `fps`
+- tamanho do mundo e centro do acampamento
+- duracao do dia e horarios de amanhecer/anoitecer
+- recursos iniciais, fogo inicial e timers base
+- sliders da HUD e audio da tela inicial
+- pesos, duracao e intensidade do sistema de clima
+- paleta e cores de papeis
+- modo de teste com `testing.unlimited_resources`
+
+Se o arquivo estiver ausente ou com algum campo faltando, o jogo usa fallback interno em `game/config.py`.

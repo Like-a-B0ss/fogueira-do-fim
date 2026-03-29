@@ -5,6 +5,7 @@ import random
 from array import array
 
 import pygame
+from pygame import Vector2
 
 
 class AudioSystem:
@@ -23,6 +24,7 @@ class AudioSystem:
         self.master_volume = 0.86
         self.ambience_volume = 0.92
         self.music_volume = 0.84
+        self.listener_pos = Vector2()
 
         try:
             if pygame.mixer.get_init() is None:
@@ -36,6 +38,10 @@ class AudioSystem:
         except pygame.error:
             self.available = False
 
+    def set_listener_position(self, pos: Vector2) -> None:
+        """Atualiza a posicao do ouvinte para o audio posicional."""
+        self.listener_pos = Vector2(pos)
+
     def play_ui(self, cue: str = "ui") -> None:
         cue_map = {
             "ui": "ui_confirm",
@@ -45,20 +51,20 @@ class AudioSystem:
         }
         self._play(cue_map.get(cue, "ui_confirm"), volume_scale=0.52)
 
-    def play_attack(self) -> None:
-        self._play("attack", volume_scale=0.6)
+    def play_attack(self, *, source_pos: Vector2 | None = None) -> None:
+        self._play("attack", volume_scale=0.6, source_pos=source_pos, max_distance=190.0)
 
-    def play_interact(self, cue: str = "interact") -> None:
+    def play_interact(self, cue: str = "interact", *, source_pos: Vector2 | None = None) -> None:
         cue_map = {
             "interact": "interact",
             "repair": "impact_wood",
             "salvage": "impact_wood",
             "bonfire": "interact",
         }
-        self._play(cue_map.get(cue, "interact"), volume_scale=0.58)
+        self._play(cue_map.get(cue, "interact"), volume_scale=0.58, source_pos=source_pos, max_distance=210.0)
 
-    def play_alert(self) -> None:
-        self._play("alert", volume_scale=0.72)
+    def play_alert(self, *, source_pos: Vector2 | None = None) -> None:
+        self._play("alert", volume_scale=0.72, source_pos=source_pos, max_distance=340.0)
 
     def play_transition(self, cue: str = "transition") -> None:
         cue_map = {
@@ -70,7 +76,7 @@ class AudioSystem:
         }
         self._play(cue_map.get(cue, "transition_start"), volume_scale=0.68)
 
-    def play_impact(self, cue: str = "flesh") -> None:
+    def play_impact(self, cue: str = "flesh", *, source_pos: Vector2 | None = None) -> None:
         cue_map = {
             "flesh": "impact_flesh",
             "wood": "impact_wood",
@@ -82,11 +88,12 @@ class AudioSystem:
             "body": 0.56,
         }
         target = cue_map.get(cue, "impact_flesh")
-        self._play(target, volume_scale=volume_map.get(cue, 0.54))
+        self._play(target, volume_scale=volume_map.get(cue, 0.54), source_pos=source_pos, max_distance=250.0)
 
     def update(self, game, dt: float) -> None:
         if not self.available or not game.scenes.is_gameplay():
             return
+        self.set_listener_position(game.player.pos)
 
         self.bonfire_timer -= dt
         self.ambience_timer -= dt
@@ -146,7 +153,13 @@ class AudioSystem:
         intensity = min(1.0, (game.bonfire_heat * 0.65 + game.bonfire_ember_bed * 0.35) / 100)
         if intensity <= 0.12:
             return
-        self._play("ambient_bonfire", volume_scale=0.08 + intensity * 0.22, category="ambience")
+        self._play(
+            "ambient_bonfire",
+            volume_scale=0.08 + intensity * 0.22,
+            category="ambience",
+            source_pos=game.bonfire_pos,
+            max_distance=320.0,
+        )
         self.bonfire_timer = self.rng.uniform(0.22, 0.62) * (1.25 - intensity * 0.38)
 
     def _update_biome_ambience(self, game) -> None:
@@ -154,8 +167,10 @@ class AudioSystem:
             return
 
         biome = getattr(game, "current_biome_key", "camp")
-        weather_kind = getattr(game, "weather_kind", "clear")
         daylight = game.daylight_factor() if hasattr(game, "daylight_factor") else (0.0 if game.is_night else 1.0)
+        precipitation = game.weather_precipitation_factor() if hasattr(game, "weather_precipitation_factor") else 0.0
+        mist = game.weather_mist_factor() if hasattr(game, "weather_mist_factor") else 0.0
+        storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
 
         if daylight < 0.18:
             options = [("ambient_night", 0.15)]
@@ -170,14 +185,14 @@ class AudioSystem:
             self.ambience_timer = self.rng.uniform(4.2, 6.8)
             return
 
-        if weather_kind == "rain":
+        if storm > 0.26 or precipitation > 0.28:
             if biome == "swamp":
-                self._play("ambient_swamp", volume_scale=0.14, category="ambience")
+                self._play("ambient_swamp", volume_scale=0.14 + storm * 0.03, category="ambience")
             elif self.rng.random() < 0.4:
-                self._play("ambient_grove", volume_scale=0.1, category="ambience")
+                self._play("ambient_grove", volume_scale=0.1 + mist * 0.02, category="ambience")
             self.ambience_timer = self.rng.uniform(5.6, 8.8)
             return
-        if weather_kind == "cloudy":
+        if mist > 0.24 or game.weather_cloud_cover() > 0.34:
             options = [("ambient_day", 0.08)]
             if biome == "swamp":
                 options.append(("ambient_swamp", 0.1))
@@ -205,23 +220,25 @@ class AudioSystem:
         if self.weather_timer > 0:
             return
 
-        weather_kind = getattr(game, "weather_kind", "clear")
-        strength = float(getattr(game, "weather_strength", 0.0))
-        if weather_kind == "rain":
-            self._play("ambient_rain", volume_scale=0.15 + strength * 0.18, category="ambience")
-            if strength > 0.58 and self.rng.random() < 0.35:
-                self._play("ambient_wind", volume_scale=0.08 + strength * 0.05, category="ambience")
+        precipitation = game.weather_precipitation_factor() if hasattr(game, "weather_precipitation_factor") else 0.0
+        wind = game.weather_wind_factor() if hasattr(game, "weather_wind_factor") else 0.0
+        storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
+        mist = game.weather_mist_factor() if hasattr(game, "weather_mist_factor") else 0.0
+        if precipitation > 0.22:
+            self._play("ambient_rain", volume_scale=0.14 + precipitation * 0.16 + storm * 0.08, category="ambience")
+            if wind > 0.34 and self.rng.random() < 0.4 + storm * 0.2:
+                self._play("ambient_wind", volume_scale=0.06 + wind * 0.08 + storm * 0.04, category="ambience")
             self.weather_timer = self.rng.uniform(1.5, 2.5)
-        elif weather_kind == "cloudy":
-            if self.rng.random() < 0.58:
-                self._play("ambient_wind", volume_scale=0.05 + strength * 0.06, category="ambience")
+        elif mist > 0.32:
+            if self.rng.random() < 0.46:
+                self._play("ambient_wind", volume_scale=0.03 + wind * 0.04 + mist * 0.02, category="ambience")
             self.weather_timer = self.rng.uniform(3.8, 6.4)
-        elif weather_kind == "wind":
-            self._play("ambient_wind", volume_scale=0.12 + strength * 0.14, category="ambience")
+        elif wind > 0.26:
+            self._play("ambient_wind", volume_scale=0.08 + wind * 0.14 + storm * 0.04, category="ambience")
             self.weather_timer = self.rng.uniform(2.4, 4.2)
         else:
-            if strength > 0.52 and self.rng.random() < 0.42:
-                self._play("ambient_wind", volume_scale=0.07 + strength * 0.05, category="ambience")
+            if wind > 0.24 and self.rng.random() < 0.42:
+                self._play("ambient_wind", volume_scale=0.05 + wind * 0.06, category="ambience")
             self.weather_timer = self.rng.uniform(5.4, 8.2)
 
     def _update_zombie_ambience(self, game) -> None:
@@ -235,10 +252,27 @@ class AudioSystem:
             self.zombie_timer = self.rng.uniform(4.8, 7.2)
             return
 
+        source_pos = None
+        if game.zombies:
+            nearest = min(game.zombies, key=lambda zombie: self.listener_pos.distance_to(zombie.pos))
+            source_pos = Vector2(nearest.pos)
+
         if visible_threat >= 7 or game.audio_tension() >= 0.82:
-            self._play("zombie_horde", volume_scale=0.14 + pressure * 0.16, category="ambience")
+            self._play(
+                "zombie_horde",
+                volume_scale=0.14 + pressure * 0.16,
+                category="ambience",
+                source_pos=source_pos,
+                max_distance=520.0,
+            )
         else:
-            self._play("zombie_groan", volume_scale=0.11 + pressure * 0.14, category="ambience")
+            self._play(
+                "zombie_groan",
+                volume_scale=0.11 + pressure * 0.14,
+                category="ambience",
+                source_pos=source_pos,
+                max_distance=420.0,
+            )
 
         interval_low = 2.0 + (1.0 - pressure) * 2.2
         interval_high = 3.8 + (1.0 - pressure) * 3.4
@@ -249,12 +283,10 @@ class AudioSystem:
             return
 
         tension = game.audio_tension()
-        if game.weather_kind == "rain":
-            tension = min(1.0, tension + game.weather_strength * 0.08)
-        elif game.weather_kind == "cloudy":
-            tension = min(1.0, tension + game.weather_strength * 0.03)
-        elif game.weather_kind == "wind":
-            tension = min(1.0, tension + game.weather_strength * 0.04)
+        tension = min(1.0, tension + game.weather_precipitation_factor() * 0.08)
+        tension = min(1.0, tension + game.weather_mist_factor() * 0.03)
+        tension = min(1.0, tension + game.weather_wind_factor() * 0.04)
+        tension = min(1.0, tension + game.weather_storm_factor() * 0.07)
 
         if tension >= 0.82:
             self._play("music_horde", volume_scale=0.12 + tension * 0.07, category="music")
@@ -273,7 +305,32 @@ class AudioSystem:
         self.ambience_volume = float(settings.get("ambience_volume", self.ambience_volume))
         self.music_volume = float(settings.get("music_volume", self.music_volume))
 
-    def _play(self, cue: str, *, volume_scale: float = 1.0, category: str = "sfx") -> None:
+    def _distance_gain(
+        self,
+        source_pos: Vector2 | None,
+        *,
+        min_distance: float = 22.0,
+        max_distance: float = 260.0,
+    ) -> float:
+        if source_pos is None:
+            return 1.0
+        distance = self.listener_pos.distance_to(Vector2(source_pos))
+        if distance <= min_distance:
+            return 1.0
+        if distance >= max_distance:
+            return 0.0
+        t = (distance - min_distance) / max(1.0, max_distance - min_distance)
+        return max(0.0, 1.0 - t * t)
+
+    def _play(
+        self,
+        cue: str,
+        *,
+        volume_scale: float = 1.0,
+        category: str = "sfx",
+        source_pos: Vector2 | None = None,
+        max_distance: float = 260.0,
+    ) -> None:
         if not self.available:
             return
         variants = self.cues.get(cue)
@@ -285,8 +342,13 @@ class AudioSystem:
             "ambience": self.ambience_volume,
             "music": self.music_volume,
         }.get(category, 1.0)
-        sound.set_volume(max(0.0, min(1.0, volume_scale * self.master_volume * category_scale)))
-        sound.play()
+        distance_scale = self._distance_gain(source_pos, max_distance=max_distance)
+        if distance_scale <= 0.0:
+            return
+        final_volume = max(0.0, min(1.0, volume_scale * self.master_volume * category_scale * distance_scale))
+        channel = sound.play()
+        if channel is not None:
+            channel.set_volume(final_volume)
 
     def _build_sound_bank(self) -> dict[str, list[pygame.mixer.Sound]]:
         return {

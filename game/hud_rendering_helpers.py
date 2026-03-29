@@ -118,7 +118,30 @@ def draw_hud(game) -> None:
     toggle_text = game.body_font.render(toggle_label, True, PALETTE["text"])
     game.screen.blit(toggle_text, toggle_text.get_rect(center=toggle_rect.center))
 
-    panel = pygame.Rect(18, 16, 358, 182 if compact_mode else 248)
+    panel_width = 358
+    panel_height = 182 if compact_mode else 248
+    panel_x = 18
+    panel_y = 16
+    panel_inner_width = panel_width - 36
+    region_text = f"Regiao atual: {game.current_region_label}"
+    biome_text = f"Bioma {game.current_biome_label}  |  boss {game.current_zone_boss_label}"
+    base_text = (
+        f"Base {game.camp_level + 1}  |  fase {game.economy_phase_label()}  |  "
+        f"camas {len(game.survivors)}/{game.total_bed_capacity()}  |  fogo {game.bonfire_stage()}"
+    )
+    if not compact_mode:
+        line_height = game.ui_small_font.get_linesize()
+        info_height = (
+            len(game.wrap_text_lines(game.ui_small_font, region_text, panel_inner_width)) * line_height
+            + len(game.wrap_text_lines(game.ui_small_font, biome_text, panel_inner_width)) * line_height
+            + len(game.wrap_text_lines(game.ui_small_font, base_text, panel_inner_width)) * line_height
+            + 4
+        )
+        estimated_info_bottom = panel_y + 62 + info_height
+        estimated_meter_y = max(panel_y + 128, estimated_info_bottom + 10)
+        estimated_bar_y = estimated_meter_y + 100
+        panel_height = max(panel_height, estimated_bar_y - panel_y + 34)
+    panel = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
     game.draw_panel(panel)
     title = game.heading_font.render("Acampamento da Clareira", True, PALETTE["text"])
     game.screen.blit(title, (panel.x + 18, panel.y + 14))
@@ -131,7 +154,7 @@ def draw_hud(game) -> None:
     game.screen.blit(subtitle, (panel.x + 18, panel.y + 44))
     info_y = game.draw_wrapped_text(
         game.ui_small_font,
-        f"Regiao atual: {game.current_region_label}",
+        region_text,
         PALETTE["accent_soft"],
         panel.x + 18,
         panel.y + 62,
@@ -140,7 +163,7 @@ def draw_hud(game) -> None:
     ) + 2
     info_y = game.draw_wrapped_text(
         game.ui_small_font,
-        f"Bioma {game.current_biome_label}  |  boss {game.current_zone_boss_label}",
+        biome_text,
         PALETTE["muted"],
         panel.x + 18,
         info_y,
@@ -149,7 +172,7 @@ def draw_hud(game) -> None:
     ) + 2
     info_bottom = game.draw_wrapped_text(
         game.ui_small_font,
-        f"Base {game.camp_level + 1}  |  fase {game.economy_phase_label()}  |  camas {len(game.survivors)}/{game.total_bed_capacity()}  |  fogo {game.bonfire_stage()}",
+        base_text,
         PALETTE["muted"],
         panel.x + 18,
         info_y,
@@ -178,12 +201,12 @@ def draw_hud(game) -> None:
         game.draw_resource_bar(panel.x + 18, bar_y, 152, 12, game.bonfire_heat / 100, "Chama", PALETTE["light"])
         game.draw_resource_bar(panel.x + 190, bar_y, 152, 12, game.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
 
-    player_panel = pygame.Rect(18, 212 if compact_mode else panel.bottom + 12, 358, 92 if compact_mode else 128)
+    player_panel = pygame.Rect(18, 212 if compact_mode else panel.bottom + 16, 358, 92 if compact_mode else 154)
     game.draw_panel(player_panel)
     heading = game.heading_font.render("Chefe do Acampamento", True, PALETTE["text"])
     game.screen.blit(heading, (player_panel.x + 18, player_panel.y + 14))
     if not compact_mode:
-        game.draw_wrapped_text(
+        status_bottom = game.draw_wrapped_text(
             game.ui_small_font,
             "Dormindo e acelerando o tempo" if game.player_sleeping else "E perto da barraca para dormir",
             PALETTE["morale"] if game.player_sleeping else PALETTE["muted"],
@@ -192,8 +215,26 @@ def draw_hud(game) -> None:
             player_panel.width - 36,
             line_gap=0,
         )
-        game.draw_resource_bar(player_panel.x + 18, player_panel.y + 68, 320, 14, game.player.health / game.player.max_health, "Vida", PALETTE["danger_soft"])
-        game.draw_resource_bar(player_panel.x + 18, player_panel.y + 100, 320, 14, game.player.stamina / game.player.max_stamina, "Folego", PALETTE["energy"])
+        health_bar_y = max(player_panel.y + 82, status_bottom + 14)
+        stamina_bar_y = health_bar_y + 34
+        game.draw_resource_bar(
+            player_panel.x + 18,
+            health_bar_y,
+            320,
+            14,
+            game.player.health / game.player.max_health,
+            "Vida",
+            PALETTE["danger_soft"],
+        )
+        game.draw_resource_bar(
+            player_panel.x + 18,
+            stamina_bar_y,
+            320,
+            14,
+            game.player.stamina / game.player.max_stamina,
+            "Folego",
+            PALETTE["energy"],
+        )
     else:
         game.draw_resource_bar(player_panel.x + 18, player_panel.y + 42, 320, 12, game.player.health / game.player.max_health, "Vida", PALETTE["danger_soft"])
         game.draw_resource_bar(player_panel.x + 18, player_panel.y + 68, 320, 12, game.player.stamina / game.player.max_stamina, "Folego", PALETTE["energy"])
@@ -341,17 +382,15 @@ def draw_hud(game) -> None:
         game.screen.blit(overlay, (0, 0))
 
 
-def draw_panel(game, rect: pygame.Rect) -> None:
+def draw_panel(game, rect: pygame.Rect, *, alpha_scale: float = 1.0) -> None:
     """Desenha um painel base reutilizado por toda a interface."""
     panel_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
     contrast = float(game.runtime_settings.get("ui_contrast", 1.0))
-    bg_alpha = int(clamp(220 + (contrast - 1.0) * 56, 172, 250))
-    line_alpha = int(clamp(126 + (contrast - 1.0) * 84, 92, 224))
-    gloss_alpha = int(clamp(12 + (contrast - 1.0) * 16, 6, 32))
+    alpha_scale = clamp(alpha_scale, 0.4, 1.2)
+    bg_alpha = int(clamp((220 + (contrast - 1.0) * 56) * alpha_scale, 92, 250))
+    line_alpha = int(clamp((126 + (contrast - 1.0) * 84) * alpha_scale, 56, 224))
     pygame.draw.rect(panel_surface, (*PALETTE["ui_bg"], bg_alpha), panel_surface.get_rect(), border_radius=18)
     pygame.draw.rect(panel_surface, (*PALETTE["ui_line"], line_alpha), panel_surface.get_rect(), 1, border_radius=18)
-    pygame.draw.rect(panel_surface, (255, 255, 255, gloss_alpha), pygame.Rect(1, 1, rect.width - 2, 20), border_radius=18)
-    pygame.draw.rect(panel_surface, (0, 0, 0, 20), pygame.Rect(2, rect.height - 18, rect.width - 4, 14), border_radius=16)
     game.screen.blit(panel_surface, rect.topleft)
 
 
@@ -471,7 +510,7 @@ def draw_survivor_card(
         game.screen.blit(summary_surface, (x + 34, y + 52))
         return
 
-    detail_top = y + 60
+    detail_top = y + 64
     detail_left = x + 16
     bar_width = width - 32
 
@@ -489,9 +528,9 @@ def draw_survivor_card(
         pygame.draw.rect(game.screen, PALETTE["ui_line"], track, 1, border_radius=6)
 
     draw_inline_bar(0, "Vida", survivor.health / max(1.0, survivor.max_health), PALETTE["danger_soft"], f"{int(survivor.health)}/{int(survivor.max_health)}")
-    draw_inline_bar(28, "Energia", survivor.energy / 100, PALETTE["energy"], f"{int(survivor.energy)}")
-    draw_inline_bar(56, "Moral", survivor.morale / 100, PALETTE["morale"], f"{int(survivor.morale)}")
-    draw_inline_bar(84, "Confianca", survivor.trust_leader / 100, PALETTE["accent_soft"], f"{int(survivor.trust_leader)}")
+    draw_inline_bar(30, "Energia", survivor.energy / 100, PALETTE["energy"], f"{int(survivor.energy)}")
+    draw_inline_bar(60, "Moral", survivor.morale / 100, PALETTE["morale"], f"{int(survivor.morale)}")
+    draw_inline_bar(90, "Confianca", survivor.trust_leader / 100, PALETTE["accent_soft"], f"{int(survivor.trust_leader)}")
 
 
 def current_objectives(game) -> list[str]:

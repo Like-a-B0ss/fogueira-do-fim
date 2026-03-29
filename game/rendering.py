@@ -80,7 +80,11 @@ class RenderMixin:
 
         self.screen.fill(PALETTE["bg"])
         self.draw_procedural_ground(shake_offset)
-        self.screen.blit(self.terrain_surface, (-self.camera.x + shake_offset.x, -self.camera.y + shake_offset.y))
+        terrain_offset = (
+            int(round(-self.camera.x + shake_offset.x)),
+            int(round(-self.camera.y + shake_offset.y)),
+        )
+        self.screen.blit(self.terrain_surface, terrain_offset)
 
         self.draw_world_features(shake_offset)
         self.draw_camp(shake_offset)
@@ -184,9 +188,11 @@ class RenderMixin:
         bottom = math.ceil((self.camera.y + SCREEN_HEIGHT + CHUNK_SIZE) / CHUNK_SIZE)
         daylight = self.daylight_factor()
         cloud_cover = self.weather_cloud_cover()
-        weather_kind = getattr(self, "weather_kind", "clear")
+        precipitation = self.weather_precipitation_factor()
+        mist = self.weather_mist_factor()
+        storm = self.weather_storm_factor()
         global_darkness = self.visual_darkness_factor()
-        weather_cool = clamp(cloud_cover * 0.58 + (0.18 if weather_kind == "rain" else 0.0), 0.0, 0.82)
+        weather_cool = clamp(cloud_cover * 0.58 + precipitation * 0.18 + mist * 0.08 + storm * 0.12, 0.0, 0.88)
         for chunk_x in range(left, right + 1):
             for chunk_y in range(top, bottom + 1):
                 biome = self.chunk_biome_kind(chunk_x, chunk_y)
@@ -207,7 +213,7 @@ class RenderMixin:
                 )
                 if biome != "forest":
                     depth = clamp(depth + 0.08, 0.0, 1.0)
-                weather_dim = cloud_cover * (0.16 + daylight * 0.12) + global_darkness * 0.18
+                weather_dim = cloud_cover * (0.16 + daylight * 0.12) + global_darkness * 0.18 + storm * 0.08
                 dark_scale = max(0.34, 1.0 - depth * 0.46 - weather_dim * 0.38)
                 light_scale = max(0.24, 1.0 - depth * 0.38 - weather_dim * 0.46)
                 dark = tuple(int(lerp(channel * dark_scale, target, weather_cool * 0.52)) for channel, target in zip(dark, (26, 36, 40)))
@@ -226,42 +232,26 @@ class RenderMixin:
                     self.screen.blit(veil, rect.topleft)
 
     def draw_weather_overlay(self, shake_offset: Vector2) -> None:
-        cloud_cover = self.weather_cloud_cover()
-        darkness = self.visual_darkness_factor()
-        weather_kind = getattr(self, "weather_kind", "clear")
-        strength = float(getattr(self, "weather_strength", 0.0))
-        if cloud_cover <= 0.08 and weather_kind != "rain":
+        precipitation = self.weather_precipitation_factor()
+        wind = self.weather_wind_factor()
+        storm = self.weather_storm_factor()
+        if precipitation <= 0.12:
             return
 
         tick = pygame.time.get_ticks() / 1000.0
-        if cloud_cover > 0.12:
-            cloud_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            sky_alpha = int((8 + cloud_cover * 28 + darkness * 10) * (0.84 if weather_kind == "clear" else 1.0))
-            for index in range(6):
-                width = 260 + index * 34 + int(cloud_cover * 90)
-                height = 92 + index * 12 + int(cloud_cover * 28)
-                drift = tick * (10 + strength * 12) + index * 160
-                x = (drift + math.sin(tick * 0.35 + index * 1.2) * 90) % (SCREEN_WIDTH + width * 2) - width
-                y = 38 + (index * 88) % (SCREEN_HEIGHT - 120) + math.sin(tick * 0.22 + index) * 18
-                ellipse = pygame.Rect(int(x), int(y), width, height)
-                pygame.draw.ellipse(cloud_surface, (56, 66, 74, sky_alpha), ellipse)
-                inner = ellipse.inflate(-int(width * 0.16), -int(height * 0.24))
-                pygame.draw.ellipse(cloud_surface, (70, 82, 90, max(8, sky_alpha - 10)), inner)
-            self.screen.blit(cloud_surface, (0, 0))
-
-        if weather_kind == "rain":
-            rain_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            streaks = int(28 + strength * 42)
-            fall = 18 + strength * 22
-            drift = 5 + strength * 8
-            for index in range(streaks):
-                phase = tick * (150 + strength * 80) + index * 43
-                x = (phase * 1.11 + index * 53) % (SCREEN_WIDTH + 160) - 80
-                y = (phase * 1.83 + index * 79) % (SCREEN_HEIGHT + 220) - 110
-                start = Vector2(x + shake_offset.x * 0.2, y + shake_offset.y * 0.2)
-                end = start + Vector2(-drift, fall)
-                pygame.draw.line(rain_surface, (154, 176, 188, int(38 + strength * 36)), start, end, 1)
-            self.screen.blit(rain_surface, (0, 0))
+        rain_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        streaks = int(18 + precipitation * 34 + storm * 18)
+        fall = 18 + precipitation * 20 + storm * 8
+        drift = 4 + wind * 7 + storm * 4
+        rain_vector = Vector2(drift, fall)
+        for index in range(streaks):
+            phase = tick * (140 + precipitation * 70 + storm * 35) + index * 43
+            x = (phase * 1.11 + index * 53 - self.camera.x * 0.92) % (SCREEN_WIDTH + 160) - 80
+            y = (phase * 1.83 + index * 79 - self.camera.y * 1.04) % (SCREEN_HEIGHT + 220) - 110
+            start = Vector2(x + shake_offset.x * 0.2, y + shake_offset.y * 0.2)
+            end = start + rain_vector
+            pygame.draw.line(rain_surface, (154, 176, 188, int(18 + precipitation * 16 + storm * 8)), start, end, 1)
+        self.screen.blit(rain_surface, (0, 0))
 
     def draw_interest_points(self, shake_offset: Vector2) -> None:
         time_value = pygame.time.get_ticks() / 260
@@ -305,6 +295,8 @@ class RenderMixin:
                 continue
             pulse = 0.5 + 0.5 * math.sin(time_value + event.uid)
             ring_color = PALETTE["danger_soft"] if event.urgency > 0.55 else PALETTE["morale"]
+            if event.kind in {"abrigo", "faccao"}:
+                self.draw_event_visitor(pos, event, pulse)
             pygame.draw.circle(self.screen, ring_color, pos, int(18 + pulse * 5), 3)
             pygame.draw.circle(self.screen, (18, 24, 26), pos, 9)
             inner = (
@@ -334,35 +326,151 @@ class RenderMixin:
                 pygame.draw.rect(self.screen, PALETTE["ui_line"], box, 1, border_radius=8)
                 self.screen.blit(label, label.get_rect(center=box.center))
 
-    def draw_interaction_prompt(self, shake_offset: Vector2) -> None:
-        hint = self.nearest_interaction_hint()
-        if not hint or self.player_sleeping:
+    def draw_event_visitor(self, pos: Vector2, event, pulse: float) -> None:
+        visitor = dict(getattr(event, "data", {}).get("visitor", {}))
+        body_color = tuple(visitor.get("body", (142, 152, 134)))
+        accent_color = tuple(visitor.get("accent", (108, 118, 94)))
+        prop = str(visitor.get("prop", "bag"))
+        tick = pygame.time.get_ticks() / 1000.0
+        hover = math.sin(tick * 2.1 + event.uid * 0.37) * 2.4
+        sway = math.sin(tick * 1.4 + event.uid * 0.23) * 1.6
+        body_pos = pos + Vector2(sway, hover)
+
+        shadow = pygame.Rect(0, 0, 36, 12)
+        shadow.inflate_ip(int(abs(sway) * 2), 0)
+        shadow.center = (int(pos.x), int(pos.y + 16))
+        pygame.draw.ellipse(self.screen, (12, 16, 16), shadow)
+
+        pygame.draw.line(self.screen, (64, 54, 42), body_pos + Vector2(-4, 14), body_pos + Vector2(-2, 2), 3)
+        pygame.draw.line(self.screen, (64, 54, 42), body_pos + Vector2(4, 14), body_pos + Vector2(2, 2), 3)
+        pygame.draw.line(self.screen, (76, 64, 48), body_pos + Vector2(0, -2), body_pos + Vector2(0, 8), 4)
+        arm_lift = math.sin(tick * 2.6 + event.uid * 0.41) * 1.5
+        pygame.draw.line(self.screen, accent_color, body_pos + Vector2(-10, arm_lift), body_pos + Vector2(10, 2 - arm_lift), 3)
+        torso = pygame.Rect(0, 0, 18, 20)
+        torso.center = (int(body_pos.x), int(body_pos.y - 2))
+        pygame.draw.ellipse(self.screen, body_color, torso)
+        pygame.draw.ellipse(self.screen, tuple(max(0, c - 34) for c in body_color), torso, 1)
+        head = pygame.Rect(0, 0, 14, 14)
+        head.center = (int(body_pos.x), int(body_pos.y - 18))
+        pygame.draw.ellipse(self.screen, (224, 214, 188), head)
+        pygame.draw.circle(self.screen, (40, 34, 28), (int(body_pos.x - 3), int(body_pos.y - 20)), 1)
+        pygame.draw.circle(self.screen, (40, 34, 28), (int(body_pos.x + 3), int(body_pos.y - 20)), 1)
+        pygame.draw.arc(self.screen, (96, 72, 54), pygame.Rect(body_pos.x - 4, body_pos.y - 18, 8, 6), 0.2, 2.9, 1)
+
+        if prop == "bag":
+            pack = pygame.Rect(0, 0, 10, 12)
+            pack.center = (int(body_pos.x + 11 + sway * 0.6), int(body_pos.y - 1))
+            pygame.draw.rect(self.screen, (98, 84, 62), pack, border_radius=3)
+            pygame.draw.rect(self.screen, (64, 52, 38), pack, 1, border_radius=3)
+        elif prop == "crate":
+            crate = pygame.Rect(0, 0, 14, 10)
+            crate.center = (int(body_pos.x + 14 + sway * 0.3), int(body_pos.y + 8))
+            pygame.draw.rect(self.screen, (118, 92, 62), crate, border_radius=2)
+            pygame.draw.rect(self.screen, (72, 50, 32), crate, 1, border_radius=2)
+        elif prop == "pole":
+            pole_tip = body_pos + Vector2(12, -18)
+            pole_base = body_pos + Vector2(12, 16)
+            pygame.draw.line(self.screen, (132, 118, 96), pole_base, pole_tip, 2)
+            cloth_sway = math.sin(tick * 2.2 + event.uid * 0.53) * 2.2
+            cloth = [pole_tip + Vector2(0, 2), pole_tip + Vector2(10 + cloth_sway, 6), pole_tip + Vector2(0, 10)]
+            pygame.draw.polygon(self.screen, accent_color, cloth)
+
+        glow = pygame.Surface((54, 54), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (*accent_color, int(18 + pulse * 10)), (27, 27), 14)
+        self.screen.blit(glow, pos - Vector2(27, 27))
+        if self.player.distance_to(event.pos) < 148:
+            self.draw_event_visitor_bubble(body_pos, event, accent_color)
+
+    def event_visitor_bark(self, event) -> str:
+        if event.kind == "abrigo":
+            return "Preciso de abrigo por esta noite."
+        if event.kind == "faccao":
+            faction = str(getattr(event, "data", {}).get("faction", ""))
+            if faction == "andarilhos":
+                return "Temos criancas e pouca comida."
+            if faction == "ferro-velho":
+                return "Trouxemos troca limpa e rapida."
+            if faction == "vigias_da_estrada":
+                return "Queremos resposta agora, chefe."
+            return "Viemos tratar com a clareira."
+        return ""
+
+    def draw_event_visitor_bubble(self, pos: Vector2, event, color: tuple[int, int, int]) -> None:
+        bark_text = self.event_visitor_bark(event)
+        if not bark_text:
             return
-        world_pos, label_text = hint
+        lines = self.wrap_text_lines(self.ui_small_font, bark_text, 180)
+        text_surfaces = [self.ui_small_font.render(line, True, PALETTE["text"]) for line in lines]
+        width = max(surface.get_width() for surface in text_surfaces) + 20
+        height = len(text_surfaces) * self.ui_small_font.get_linesize() + max(0, len(text_surfaces) - 1) * 2 + 12
+        bubble = pygame.Surface((width, height + 7), pygame.SRCALPHA)
+        bubble_rect = pygame.Rect(0, 0, width, height)
+        pygame.draw.rect(bubble, (14, 18, 20, 214), bubble_rect, border_radius=11)
+        pygame.draw.rect(bubble, (*color, 124), bubble_rect, 1, border_radius=11)
+        tail = [(width // 2 - 8, height - 2), (width // 2 + 8, height - 2), (width // 2, height + 7)]
+        pygame.draw.polygon(bubble, (14, 18, 20, 214), tail)
+        pygame.draw.polygon(bubble, (*color, 116), tail, 1)
+        text_y = 6
+        for surface in text_surfaces:
+            bubble.blit(surface, surface.get_rect(center=(width // 2, text_y + surface.get_height() // 2)))
+            text_y += self.ui_small_font.get_linesize() + 2
+        bubble_pos = pos - Vector2(width / 2, 56 + height)
+        self.screen.blit(bubble, bubble_pos)
+
+    def draw_interaction_prompt(self, shake_offset: Vector2) -> None:
+        hovered_target = self.hovered_interaction_target()
+        reachable = False
+        label_text: str | None = None
+        if hovered_target and not self.player_sleeping:
+            world_pos = Vector2(hovered_target["pos"])
+            label_text = self.prompt_for_interaction_target(hovered_target)
+            reachable = self.player.distance_to(world_pos) <= float(hovered_target.get("reach", 112.0))
+            if not label_text:
+                hovered_target = None
+        if not hovered_target:
+            hint = self.nearest_interaction_hint()
+            if not hint or self.player_sleeping:
+                return
+            world_pos, label_text = hint
+            reachable = True
+        else:
+            world_pos = Vector2(hovered_target["pos"])
+        if not label_text:
+            return
         pos = self.world_to_screen(world_pos) + shake_offset
         if pos.x < -140 or pos.x > SCREEN_WIDTH + 140 or pos.y < -140 or pos.y > SCREEN_HEIGHT + 140:
             return
         pulse = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() / 210)
         ring_radius = 18 + pulse * 4
-        pygame.draw.circle(self.screen, PALETTE["accent_soft"], pos, ring_radius, 2)
+        ring_color = PALETTE["accent_soft"] if reachable else PALETTE["muted"]
+        pygame.draw.circle(self.screen, ring_color, pos, ring_radius, 2)
         if label_text.startswith("E "):
             label_text = label_text.replace("E ", "E / botao direito ", 1)
+        if hovered_target and not reachable:
+            label_text = self.fit_text_to_width(self.body_font, f"{label_text}  |  chegue mais perto", 440)
         label = self.body_font.render(label_text, True, PALETTE["text"])
         box = pygame.Rect(0, 0, min(360, label.get_width() + 18), label.get_height() + 10)
         box.midbottom = (pos.x, pos.y - 20)
         pygame.draw.rect(self.screen, (16, 22, 24), box, border_radius=10)
-        pygame.draw.rect(self.screen, PALETTE["accent_soft"], box, 1, border_radius=10)
+        pygame.draw.rect(self.screen, ring_color, box, 1, border_radius=10)
         self.screen.blit(label, label.get_rect(center=box.center))
 
     def draw_camp(self, shake_offset: Vector2) -> None:
         for tree in self.trees:
             self.draw_tree(tree, shake_offset)
 
-        outer_rect = self.camp_rect(22).move(shake_offset.x, shake_offset.y)
-        inner_rect = self.camp_rect(-18).move(shake_offset.x, shake_offset.y)
-        pygame.draw.rect(self.screen, (70, 64, 38), outer_rect, border_radius=28)
-        pygame.draw.rect(self.screen, (110, 98, 58), inner_rect, border_radius=20)
-        pygame.draw.rect(self.screen, (129, 114, 72), inner_rect.inflate(-18, -18), 3, border_radius=18)
+        world_bounds = self.camp_visual_bounds(118)
+        screen_bounds = world_bounds.move(shake_offset.x, shake_offset.y)
+        camp_surface = pygame.Surface((world_bounds.width, world_bounds.height), pygame.SRCALPHA)
+        outline_sets = (
+            (self.camp_visual_ellipses(28), (118, 112, 78, 18), 2),
+            (self.camp_visual_ellipses(-18), (142, 136, 96, 14), 1),
+        )
+        for ellipses, color, width in outline_sets:
+            for ellipse in ellipses:
+                local = ellipse.move(-world_bounds.x, -world_bounds.y)
+                pygame.draw.ellipse(camp_surface, color, local, width)
+        self.screen.blit(camp_surface, screen_bounds.topleft)
 
         for tent in self.tents:
             pos = self.world_to_screen(Vector2(tent["pos"])) + shake_offset
@@ -463,6 +571,12 @@ class RenderMixin:
         spread = float(tree["spread"])
         branch_bias = float(tree["branch_bias"])
         tone = float(tree["tone"])
+        wind = self.weather_wind_factor()
+        storm = self.weather_storm_factor()
+        tick = pygame.time.get_ticks() / 1000.0
+        sway = math.sin(tick * (0.9 + wind * 1.3) + float(tree.get("sway_seed", tone * 4.6))) * (wind * 4.0 + storm * 3.0)
+        pos = pos + Vector2(sway * 0.18, 0)
+        lean = lean + sway * 0.016
 
         crown_color = (
             int(lerp(35, 69, tone)),
@@ -621,14 +735,23 @@ class RenderMixin:
         deck.center = (int(pos.x), int(pos.y - 20))
         pygame.draw.rect(self.screen, PALETTE["wood"], deck, border_radius=4)
         pygame.draw.rect(self.screen, PALETTE["wood_dark"], deck, 2, border_radius=4)
+        pygame.draw.line(self.screen, (156, 136, 102), (deck.x + 6, deck.y + 3), (deck.right - 6, deck.y + 3), 1)
+        pygame.draw.line(self.screen, (92, 74, 50), (deck.x + 6, deck.bottom - 4), (deck.right - 6, deck.bottom - 4), 1)
         pygame.draw.line(self.screen, PALETTE["wood_dark"], deck.midtop, deck.midtop + Vector2(0, -18), 3)
         pygame.draw.polygon(self.screen, (148, 128, 82), [deck.midtop + Vector2(0, -24), deck.midtop + Vector2(-16, -6), deck.midtop + Vector2(16, -6)])
+        lantern = deck.midtop + Vector2(12, -4)
+        pygame.draw.circle(self.screen, (218, 176, 92), lantern, 3)
+        glow = pygame.Surface((26, 26), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (236, 182, 92, 34), (13, 13), 10)
+        self.screen.blit(glow, Vector2(lantern) - Vector2(13, 13))
 
     def draw_garden_plot(self, pos: Vector2) -> None:
         rect = pygame.Rect(0, 0, 54, 34)
         rect.center = (int(pos.x), int(pos.y))
         pygame.draw.rect(self.screen, (94, 74, 46), rect, border_radius=8)
         pygame.draw.rect(self.screen, (61, 45, 31), rect, 2, border_radius=8)
+        fence = rect.inflate(10, 8)
+        pygame.draw.rect(self.screen, (116, 92, 58), fence, 2, border_radius=10)
         for row in range(3):
             y = rect.y + 8 + row * 8
             pygame.draw.line(self.screen, (128, 95, 58), (rect.x + 4, y), (rect.right - 4, y), 2)
@@ -637,6 +760,10 @@ class RenderMixin:
             pygame.draw.line(self.screen, (62, 116, 64), sprout + Vector2(0, 10), sprout, 2)
             pygame.draw.circle(self.screen, (106, 162, 82), sprout + Vector2(-2, -2), 3)
             pygame.draw.circle(self.screen, (88, 148, 74), sprout + Vector2(2, -1), 3)
+        bucket = pygame.Rect(0, 0, 10, 10)
+        bucket.center = (int(pos.x + 24), int(pos.y + 10))
+        pygame.draw.rect(self.screen, (96, 108, 118), bucket, border_radius=3)
+        pygame.draw.rect(self.screen, (62, 74, 84), bucket, 1, border_radius=3)
 
     def draw_workshop_annex(self, pos: Vector2) -> None:
         rect = pygame.Rect(0, 0, 54, 40)
@@ -648,6 +775,10 @@ class RenderMixin:
         pygame.draw.line(self.screen, (138, 124, 102), (rect.x + 14, rect.y + 12), (rect.right - 14, rect.y + 12), 2)
         pygame.draw.line(self.screen, (138, 124, 102), (rect.x + 14, rect.y + 22), (rect.right - 14, rect.y + 22), 2)
         pygame.draw.line(self.screen, (138, 124, 102), (rect.centerx, rect.y + 10), (rect.centerx, rect.bottom - 8), 2)
+        tool_rack = pygame.Rect(rect.x + 8, rect.bottom - 10, 18, 6)
+        pygame.draw.rect(self.screen, (74, 56, 38), tool_rack, border_radius=2)
+        pygame.draw.line(self.screen, (162, 146, 120), tool_rack.midleft + Vector2(4, -8), tool_rack.midleft + Vector2(4, 0), 2)
+        pygame.draw.line(self.screen, (144, 126, 98), tool_rack.midleft + Vector2(10, -7), tool_rack.midleft + Vector2(10, 0), 2)
 
     def draw_sawmill(self, pos: Vector2) -> None:
         base = pygame.Rect(0, 0, 58, 38)
@@ -663,6 +794,13 @@ class RenderMixin:
         blade.center = (int(pos.x + 16), int(pos.y - 10))
         pygame.draw.rect(self.screen, (142, 150, 154), blade, border_radius=4)
         pygame.draw.rect(self.screen, (82, 89, 94), blade, 1, border_radius=4)
+        rail = pygame.Rect(base.x + 6, base.y + 6, 30, 6)
+        pygame.draw.rect(self.screen, (132, 110, 72), rail, border_radius=3)
+        stack = pygame.Rect(0, 0, 18, 12)
+        stack.center = (int(pos.x - 18), int(pos.y - 10))
+        pygame.draw.rect(self.screen, (136, 102, 64), stack, border_radius=3)
+        pygame.draw.line(self.screen, (86, 62, 40), (stack.x + 3, stack.y + 4), (stack.right - 3, stack.y + 4), 1)
+        pygame.draw.line(self.screen, (86, 62, 40), (stack.x + 3, stack.y + 8), (stack.right - 3, stack.y + 8), 1)
 
     def draw_cookhouse(self, pos: Vector2) -> None:
         rect = pygame.Rect(0, 0, 56, 42)
@@ -677,6 +815,11 @@ class RenderMixin:
         pygame.draw.rect(self.screen, (38, 24, 22), oven.inflate(-8, -4), border_radius=4)
         pygame.draw.circle(self.screen, (214, 164, 88), pos + Vector2(16, -4), 7)
         pygame.draw.circle(self.screen, (236, 196, 116), pos + Vector2(14, -6), 4)
+        chimney = pygame.Rect(0, 0, 8, 16)
+        chimney.midbottom = (int(pos.x + 14), int(rect.y + 6))
+        pygame.draw.rect(self.screen, (74, 62, 58), chimney, border_radius=2)
+        pygame.draw.circle(self.screen, (210, 210, 210), chimney.midtop + Vector2(-2, -6), 3)
+        pygame.draw.circle(self.screen, (190, 190, 190), chimney.midtop + Vector2(3, -11), 2)
 
     def draw_infirmary(self, pos: Vector2) -> None:
         rect = pygame.Rect(0, 0, 54, 40)
@@ -688,6 +831,12 @@ class RenderMixin:
         pygame.draw.rect(self.screen, (228, 226, 212), pygame.Rect(rect.centerx - 9, rect.y + 8, 18, 18), border_radius=4)
         pygame.draw.rect(self.screen, (178, 62, 62), pygame.Rect(rect.centerx - 3, rect.y + 10, 6, 14), border_radius=2)
         pygame.draw.rect(self.screen, (178, 62, 62), pygame.Rect(rect.centerx - 7, rect.y + 14, 14, 6), border_radius=2)
+        cot = pygame.Rect(0, 0, 18, 8)
+        cot.center = (int(pos.x - 14), int(pos.y + 8))
+        pygame.draw.rect(self.screen, (182, 196, 188), cot, border_radius=3)
+        pygame.draw.rect(self.screen, (98, 112, 104), cot, 1, border_radius=3)
+        lamp = pos + Vector2(16, -8)
+        pygame.draw.circle(self.screen, (220, 196, 124), lamp, 3)
 
     def draw_station(
         self,
@@ -960,7 +1109,21 @@ class RenderMixin:
                 pygame.Rect(pos.x - entity.radius * 0.92, pos.y + entity.radius * 0.48, entity.radius * 1.84, entity.radius * 0.86),
             )
             if kind == "player":
-                self.draw_character(pos, (228, 208, 156), (44, 54, 63), entity.radius, "chefe")
+                player_expression = "calmo"
+                if self.player.attack_flash > 0:
+                    player_expression = "focado"
+                elif self.player.health < self.player.max_health * 0.35:
+                    player_expression = "ferido"
+                elif self.player.stamina < self.player.max_stamina * 0.28:
+                    player_expression = "cansado"
+                self.draw_character(
+                    pos,
+                    (228, 208, 156),
+                    (44, 54, 63),
+                    entity.radius,
+                    "chefe",
+                    expression=player_expression,
+                )
                 if self.player.attack_flash > 0:
                     swing = pygame.Surface((160, 160), pygame.SRCALPHA)
                     center = Vector2(80, 80)
@@ -985,7 +1148,16 @@ class RenderMixin:
                         int(entity.radius * 0.34),
                     )
                 else:
-                    self.draw_character(pos, survivor.color, (52, 44, 36), entity.radius, survivor.name)
+                    survivor_expression = self.survivor_expression(survivor)
+                    self.draw_character(
+                        pos,
+                        survivor.color,
+                        (52, 44, 36),
+                        entity.radius,
+                        survivor.name,
+                        role=survivor.role,
+                        expression=survivor_expression,
+                    )
                 self.draw_status_orb(pos, survivor)
                 self.draw_survivor_bark(pos, survivor)
             else:
@@ -998,7 +1170,15 @@ class RenderMixin:
                     pygame.draw.circle(aura, (*zombie.boss_accent, 34), aura_center, glow_radius)
                     pygame.draw.circle(aura, (*zombie.boss_body, 76), aura_center, int(entity.radius * 1.9), 3)
                     self.screen.blit(aura, pos - center)
-                    self.draw_character(pos, zombie.boss_body, zombie.boss_accent, entity.radius, zombie.boss_name, zombie=True)
+                    self.draw_character(
+                        pos,
+                        zombie.boss_body,
+                        zombie.boss_accent,
+                        entity.radius,
+                        zombie.boss_name,
+                        zombie=True,
+                        expression="agressivo",
+                    )
                     ratio = zombie.health / max(1.0, zombie.max_health)
                     bar_rect = pygame.Rect(0, 0, 88, 8)
                     bar_rect.midbottom = (pos.x, pos.y - entity.radius * 2.0)
@@ -1025,7 +1205,8 @@ class RenderMixin:
                     elif getattr(zombie, "variant", "walker") == "raider":
                         body = (118, 120, 88)
                         accent = (72, 58, 40)
-                    self.draw_character(pos, body, accent, entity.radius, None, zombie=True)
+                    zombie_expression = "agressivo" if getattr(zombie, "variant", "walker") in {"runner", "raider", "howler"} else "vazio"
+                    self.draw_character(pos, body, accent, entity.radius, None, zombie=True, expression=zombie_expression)
                     if getattr(zombie, "weapon_name", ""):
                         self.draw_zombie_weapon(pos, zombie)
                     ratio = zombie.health / max(1.0, zombie.max_health)
@@ -1049,25 +1230,176 @@ class RenderMixin:
         label: str | None,
         *,
         zombie: bool = False,
+        role: str | None = None,
+        expression: str = "calmo",
     ) -> None:
-        pygame.draw.circle(self.screen, clothing, pos, int(radius))
-        pygame.draw.circle(self.screen, accent, pos + Vector2(0, radius * 0.1), int(radius * 0.62))
-        pygame.draw.circle(
+        scale = max(0.85, radius / 11.0)
+        head_color = (224, 214, 188) if not zombie else (148, 165, 119)
+        outline = tuple(max(0, channel - 34) for channel in clothing)
+        tick = pygame.time.get_ticks() / 1000.0
+        phase = tick * (1.55 if zombie else 1.9) + (sum(clothing) * 0.0031) + (sum(accent) * 0.0017)
+        bob = math.sin(phase) * (1.2 * scale)
+        sway = math.sin(phase * 0.7) * (0.8 * scale)
+        arm_swing = math.sin(phase * 1.7) * (2.6 * scale)
+        arm_lift = math.cos(phase * 1.5) * (1.4 * scale)
+        animated_pos = pos + Vector2(sway, bob)
+
+        shadow = pygame.Rect(0, 0, int(28 * scale), int(10 * scale))
+        shadow.center = (int(pos.x), int(pos.y + 14 * scale))
+        pygame.draw.ellipse(self.screen, (12, 16, 16), shadow)
+
+        pygame.draw.line(
             self.screen,
-            (227, 207, 176) if not zombie else (148, 165, 119),
-            pos + Vector2(0, -radius * 0.9),
-            int(radius * 0.72),
+            (64, 54, 42),
+            animated_pos + Vector2(-4 * scale, 13 * scale),
+            animated_pos + Vector2(-2 * scale - arm_swing * 0.12, 2 * scale),
+            max(2, int(3 * scale)),
         )
-        eye_y = pos.y - radius * 1.02
-        pygame.draw.circle(self.screen, (26, 24, 20), (int(pos.x - radius * 0.2), int(eye_y)), 2)
-        pygame.draw.circle(self.screen, (26, 24, 20), (int(pos.x + radius * 0.2), int(eye_y)), 2)
+        pygame.draw.line(
+            self.screen,
+            (64, 54, 42),
+            animated_pos + Vector2(4 * scale, 13 * scale),
+            animated_pos + Vector2(2 * scale + arm_swing * 0.12, 2 * scale),
+            max(2, int(3 * scale)),
+        )
+        pygame.draw.line(
+            self.screen,
+            (76, 64, 48),
+            animated_pos + Vector2(0, -2 * scale),
+            animated_pos + Vector2(0, 8 * scale),
+            max(2, int(4 * scale)),
+        )
+        left_shoulder = animated_pos + Vector2(-5 * scale, -7 * scale)
+        right_shoulder = animated_pos + Vector2(5 * scale, -7 * scale)
+        left_hand = animated_pos + Vector2(-10 * scale - arm_swing, -2 * scale + arm_lift)
+        right_hand = animated_pos + Vector2(10 * scale + arm_swing, -1 * scale - arm_lift)
+        pygame.draw.line(self.screen, accent, left_shoulder, left_hand, max(2, int(3 * scale)))
+        pygame.draw.line(self.screen, accent, right_shoulder, right_hand, max(2, int(3 * scale)))
+        pygame.draw.circle(self.screen, head_color, (int(left_hand.x), int(left_hand.y)), max(1, int(1.25 * scale)))
+        pygame.draw.circle(self.screen, head_color, (int(right_hand.x), int(right_hand.y)), max(1, int(1.25 * scale)))
+        if role and not zombie:
+            self.draw_role_tool(right_hand, role, scale, accent)
+
+        torso = pygame.Rect(0, 0, int(18 * scale), int(20 * scale))
+        torso.center = (int(animated_pos.x), int(animated_pos.y - 2 * scale))
+        pygame.draw.ellipse(self.screen, clothing, torso)
+        pygame.draw.ellipse(self.screen, outline, torso, 1)
+
+        head = pygame.Rect(0, 0, int(14 * scale), int(14 * scale))
+        head.center = (int(animated_pos.x), int(animated_pos.y - 18 * scale - arm_lift * 0.15))
+        pygame.draw.ellipse(self.screen, head_color, head)
+        face_center = Vector2(animated_pos.x, animated_pos.y - 18 * scale - arm_lift * 0.15)
+        self.draw_face(face_center, scale, expression, zombie=zombie)
         if label:
             text = self.small_font.render(label, True, PALETTE["text"])
             box = pygame.Rect(0, 0, text.get_width() + 10, text.get_height() + 4)
-            box.midbottom = (pos.x, pos.y - radius * 1.5)
+            box.midbottom = (animated_pos.x, animated_pos.y - radius * 2.18)
             pygame.draw.rect(self.screen, (18, 24, 26), box, border_radius=8)
             pygame.draw.rect(self.screen, PALETTE["ui_line"], box, 1, border_radius=8)
             self.screen.blit(text, text.get_rect(center=box.center))
+
+    def draw_role_tool(self, hand_pos: Vector2, role: str, scale: float, accent: tuple[int, int, int]) -> None:
+        if role == "lenhador":
+            pygame.draw.line(self.screen, (106, 82, 58), hand_pos + Vector2(-1 * scale, -6 * scale), hand_pos + Vector2(6 * scale, 5 * scale), max(2, int(2 * scale)))
+            head = [hand_pos + Vector2(2 * scale, -7 * scale), hand_pos + Vector2(8 * scale, -4 * scale), hand_pos + Vector2(4 * scale, 0)]
+            pygame.draw.polygon(self.screen, (136, 142, 148), head)
+        elif role == "vigia":
+            pygame.draw.line(self.screen, (118, 108, 88), hand_pos + Vector2(0, -8 * scale), hand_pos + Vector2(0, 6 * scale), max(2, int(2 * scale)))
+            tip = [hand_pos + Vector2(0, -11 * scale), hand_pos + Vector2(-3 * scale, -5 * scale), hand_pos + Vector2(3 * scale, -5 * scale)]
+            pygame.draw.polygon(self.screen, (162, 176, 184), tip)
+        elif role == "batedora":
+            lens_left = hand_pos + Vector2(-3 * scale, -2 * scale)
+            lens_right = hand_pos + Vector2(3 * scale, -2 * scale)
+            pygame.draw.circle(self.screen, (86, 96, 108), (int(lens_left.x), int(lens_left.y)), max(2, int(2 * scale)))
+            pygame.draw.circle(self.screen, (86, 96, 108), (int(lens_right.x), int(lens_right.y)), max(2, int(2 * scale)))
+            pygame.draw.line(self.screen, (66, 74, 84), lens_left + Vector2(2 * scale, 0), lens_right - Vector2(2 * scale, 0), 1)
+        elif role == "artesa":
+            pygame.draw.line(self.screen, (122, 92, 64), hand_pos + Vector2(-1 * scale, -5 * scale), hand_pos + Vector2(5 * scale, 4 * scale), max(2, int(2 * scale)))
+            pygame.draw.rect(
+                self.screen,
+                (128, 132, 138),
+                pygame.Rect(int(hand_pos.x + 2 * scale), int(hand_pos.y - 8 * scale), max(4, int(5 * scale)), max(3, int(4 * scale))),
+                border_radius=2,
+            )
+        elif role == "cozinheiro":
+            pygame.draw.line(self.screen, (132, 116, 92), hand_pos + Vector2(-1 * scale, -6 * scale), hand_pos + Vector2(5 * scale, 5 * scale), max(2, int(2 * scale)))
+            pygame.draw.circle(self.screen, (92, 104, 114), (int(hand_pos.x + 6 * scale), int(hand_pos.y - 5 * scale)), max(2, int(2 * scale)))
+        elif role == "mensageiro":
+            bag = pygame.Rect(0, 0, max(5, int(7 * scale)), max(6, int(8 * scale)))
+            bag.center = (int(hand_pos.x + 4 * scale), int(hand_pos.y - 1 * scale))
+            pygame.draw.rect(self.screen, (96, 78, 116), bag, border_radius=2)
+            pygame.draw.rect(self.screen, tuple(max(0, c - 28) for c in accent), bag, 1, border_radius=2)
+
+    def draw_face(self, center: Vector2, scale: float, expression: str, *, zombie: bool = False) -> None:
+        eye_color = (30, 26, 22) if not zombie else (40, 54, 34)
+        mouth_color = (96, 72, 54) if not zombie else (62, 84, 58)
+        brow_color = (72, 54, 38) if not zombie else (56, 78, 52)
+        eye_y = center.y - 2 * scale
+        left_eye = Vector2(center.x - 3 * scale, eye_y)
+        right_eye = Vector2(center.x + 3 * scale, eye_y)
+        eye_radius = max(1, int(1.15 * scale))
+
+        pygame.draw.circle(self.screen, eye_color, (int(left_eye.x), int(left_eye.y)), eye_radius)
+        pygame.draw.circle(self.screen, eye_color, (int(right_eye.x), int(right_eye.y)), eye_radius)
+
+        if expression in {"focado", "agressivo", "irritado"}:
+            pygame.draw.line(self.screen, brow_color, left_eye + Vector2(-2 * scale, -2 * scale), left_eye + Vector2(2 * scale, -1 * scale), 1)
+            pygame.draw.line(self.screen, brow_color, right_eye + Vector2(-2 * scale, -1 * scale), right_eye + Vector2(2 * scale, -2 * scale), 1)
+            pygame.draw.line(self.screen, mouth_color, center + Vector2(-2.2 * scale, 4 * scale), center + Vector2(2.2 * scale, 4 * scale), 1)
+        elif expression in {"triste", "ferido"}:
+            pygame.draw.line(self.screen, brow_color, left_eye + Vector2(-2 * scale, -1 * scale), left_eye + Vector2(2 * scale, -2 * scale), 1)
+            pygame.draw.line(self.screen, brow_color, right_eye + Vector2(-2 * scale, -2 * scale), right_eye + Vector2(2 * scale, -1 * scale), 1)
+            pygame.draw.arc(
+                self.screen,
+                mouth_color,
+                pygame.Rect(center.x - 4 * scale, center.y + 2.8 * scale, 8 * scale, 5 * scale),
+                3.35,
+                6.05,
+                1,
+            )
+        elif expression == "cansado":
+            pygame.draw.line(self.screen, brow_color, left_eye + Vector2(-2 * scale, -1 * scale), left_eye + Vector2(2 * scale, -1 * scale), 1)
+            pygame.draw.line(self.screen, brow_color, right_eye + Vector2(-2 * scale, -1 * scale), right_eye + Vector2(2 * scale, -1 * scale), 1)
+            pygame.draw.line(self.screen, mouth_color, center + Vector2(-2.4 * scale, 4.2 * scale), center + Vector2(2.4 * scale, 4.2 * scale), 1)
+        elif expression == "assustado":
+            pygame.draw.circle(self.screen, eye_color, (int(left_eye.x), int(left_eye.y)), max(1, int(1.5 * scale)))
+            pygame.draw.circle(self.screen, eye_color, (int(right_eye.x), int(right_eye.y)), max(1, int(1.5 * scale)))
+            pygame.draw.circle(self.screen, mouth_color, (int(center.x), int(center.y + 4 * scale)), max(1, int(1.2 * scale)), 1)
+        elif expression == "sorrindo":
+            pygame.draw.arc(
+                self.screen,
+                mouth_color,
+                pygame.Rect(center.x - 4 * scale, center.y + 1.4 * scale, 8 * scale, 6 * scale),
+                0.15,
+                2.95,
+                1,
+            )
+        else:
+            pygame.draw.arc(
+                self.screen,
+                mouth_color,
+                pygame.Rect(center.x - 4 * scale, center.y + 2.1 * scale, 8 * scale, 5 * scale),
+                0.2,
+                2.9,
+                1,
+            )
+
+    def survivor_expression(self, survivor: Survivor) -> str:
+        if not survivor.is_alive():
+            return "ferido"
+        if getattr(survivor, "insanity", 0.0) > 78:
+            return "assustado"
+        if survivor.conflict_cooldown > 0:
+            return "irritado"
+        if survivor.health < survivor.max_health * 0.38:
+            return "ferido"
+        if survivor.exhaustion > 76 or survivor.energy < 24:
+            return "cansado"
+        if survivor.morale < 34:
+            return "triste"
+        if survivor.morale > 72 and survivor.trust_leader > 56:
+            return "sorrindo"
+        return "calmo"
 
     def draw_survivor_bark(self, pos: Vector2, survivor: Survivor) -> None:
         bark_text = str(getattr(survivor, "bark_text", "")).strip()
@@ -1163,71 +1495,41 @@ class RenderMixin:
         self.screen.blit(fog_surface, (0, 0))
 
     def carve_map_visibility(self, overlay: pygame.Surface, center: Vector2, radius: float) -> None:
-        diameter = int(radius * 2.8)
-        reveal = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
-        reveal_center = Vector2(diameter / 2, diameter / 2)
-        center_xy = (int(reveal_center.x), int(reveal_center.y))
-        pygame.draw.circle(reveal, (0, 0, 0, 58), center_xy, int(radius * 1.16))
-        pygame.draw.circle(reveal, (0, 0, 0, 92), center_xy, int(radius * 0.9))
-        pygame.draw.circle(reveal, (0, 0, 0, 132), center_xy, int(radius * 0.68))
-        pygame.draw.circle(reveal, (0, 0, 0, 220), center_xy, int(radius * 0.46))
-        for index in range(6):
-            angle = index / 6 * math.tau
-            offset = angle_to_vector(angle) * radius * 0.28
-            pygame.draw.circle(
-                reveal,
-                (0, 0, 0, 72),
-                (int(reveal_center.x + offset.x), int(reveal_center.y + offset.y)),
-                int(radius * 0.32),
-            )
+        diameter = max(4, int(radius * 2.3))
+        reveal = self.map_reveal_cache.get(diameter)
+        if reveal is None:
+            reveal = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+            center_xy = (diameter // 2, diameter // 2)
+            pygame.draw.circle(reveal, (0, 0, 0, 220), center_xy, int(radius * 0.9))
+            self.map_reveal_cache[diameter] = reveal
+        reveal_center = Vector2(reveal.get_width() / 2, reveal.get_height() / 2)
         top_left = center - reveal_center
         overlay.blit(reveal, (int(top_left.x), int(top_left.y)), special_flags=pygame.BLEND_RGBA_SUB)
 
     def draw_map_fog(self, shake_offset: Vector2) -> None:
-        source_rect = pygame.Rect(int(self.camera.x), int(self.camera.y), SCREEN_WIDTH, SCREEN_HEIGHT)
-        fog_bounds = self.fog_of_war.get_rect()
-        overlap = source_rect.clip(fog_bounds)
-        if overlap.width > 0 and overlap.height > 0:
-            fog_slice = self.fog_of_war.subsurface(overlap).copy()
-            fog_slice.set_alpha(int(255 * clamp(float(self.runtime_settings.get("fog_strength", 1.0)), 0.2, 1.25)))
-            dest = (
-                int(overlap.x - source_rect.x + shake_offset.x),
-                int(overlap.y - source_rect.y + shake_offset.y),
-            )
-            self.screen.blit(fog_slice, dest)
-        if source_rect.left < fog_bounds.left or source_rect.top < fog_bounds.top or source_rect.right > fog_bounds.right or source_rect.bottom > fog_bounds.bottom:
-            void_fog = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            void_alpha = int(242 * clamp(float(self.runtime_settings.get("fog_strength", 1.0)), 0.2, 1.25))
-            if source_rect.left < fog_bounds.left:
-                width = fog_bounds.left - source_rect.left
-                pygame.draw.rect(void_fog, (0, 0, 0, void_alpha), pygame.Rect(0, 0, width, SCREEN_HEIGHT))
-            if source_rect.top < fog_bounds.top:
-                height = fog_bounds.top - source_rect.top
-                pygame.draw.rect(void_fog, (0, 0, 0, void_alpha), pygame.Rect(0, 0, SCREEN_WIDTH, height))
-            if source_rect.right > fog_bounds.right:
-                width = source_rect.right - fog_bounds.right
-                pygame.draw.rect(void_fog, (0, 0, 0, void_alpha), pygame.Rect(SCREEN_WIDTH - width, 0, width, SCREEN_HEIGHT))
-            if source_rect.bottom > fog_bounds.bottom:
-                height = source_rect.bottom - fog_bounds.bottom
-                pygame.draw.rect(void_fog, (0, 0, 0, void_alpha), pygame.Rect(0, SCREEN_HEIGHT - height, SCREEN_WIDTH, height))
+        view_rect = pygame.Rect(int(self.camera.x), int(self.camera.y), SCREEN_WIDTH, SCREEN_HEIGHT)
+        fog_overlay = self.map_fog_overlay_surface
+        if fog_overlay is None or fog_overlay.get_size() != (SCREEN_WIDTH, SCREEN_HEIGHT):
+            fog_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            self.map_fog_overlay_surface = fog_overlay
+        fog_strength = clamp(float(self.runtime_settings.get("fog_strength", 1.0)), 0.2, 1.25)
+        fog_overlay.fill((0, 0, 0, int(224 * fog_strength)))
 
-            self.carve_map_visibility(void_fog, self.world_to_screen(self.player.pos), 146)
-            if self.player.distance_to(self.bonfire_pos) < self.camp_clearance_radius() + 40:
-                self.carve_map_visibility(void_fog, self.world_to_screen(CAMP_CENTER), self.camp_clearance_radius() + 88)
-            for survivor in self.survivors:
-                if survivor.is_alive() and (survivor.distance_to(self.player.pos) < 260 or survivor in self.expedition_visible_members()):
-                    self.carve_map_visibility(void_fog, self.world_to_screen(survivor.pos), 74)
-            self.screen.blit(void_fog, (0, 0))
+        for center, radius in self.visible_fog_reveals(view_rect):
+            self.carve_map_visibility(fog_overlay, self.world_to_screen(center), radius)
+
+        self.screen.blit(fog_overlay, (0, 0))
 
     def draw_lighting(self) -> None:
         darkness_factor = self.visual_darkness_factor()
         cloud_cover = self.weather_cloud_cover()
         daylight = self.daylight_factor()
+        storm = self.weather_storm_factor()
         darkness = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         darkness.fill((*PALETTE["night"], int(12 + darkness_factor * 126)))
         if cloud_cover > 0.12:
             cloud_tint = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            cloud_tint.fill((38, 46, 52, int((8 + cloud_cover * 28) * max(0.22, daylight))))
+            cloud_tint.fill((38, 46, 52, int((4 + cloud_cover * 14 + storm * 6) * max(0.16, daylight * 0.75))))
             darkness.blit(cloud_tint, (0, 0))
         self.screen.blit(darkness, (0, 0))
 
@@ -1251,8 +1553,14 @@ class RenderMixin:
 
         self.screen.blit(light_surface, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
+        weather_flash = float(getattr(self, "weather_flash", 0.0))
+        if weather_flash > 0.01:
+            flash = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            flash.fill((190, 210, 224, int(22 + weather_flash * 54)))
+            self.screen.blit(flash, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
         vignette = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(vignette, (0, 0, 0, int(6 + darkness_factor * 36 + cloud_cover * 10)), vignette.get_rect(), border_radius=22)
+        pygame.draw.rect(vignette, (0, 0, 0, int(4 + darkness_factor * 24 + cloud_cover * 5 + storm * 4)), vignette.get_rect(), border_radius=22)
         self.screen.blit(vignette, (0, 0))
 
     def draw_chat_panel(self) -> None:
@@ -1268,10 +1576,23 @@ class RenderMixin:
         size = float(recipe["size"])
         valid = self.is_valid_build_position(str(recipe["kind"]), build_pos)
         color = PALETTE["heal"] if valid else PALETTE["danger_soft"]
-        preview = pygame.Surface((int(size * 2.8), int(size * 2.8)), pygame.SRCALPHA)
-        pygame.draw.circle(preview, (*color, 38), (preview.get_width() // 2, preview.get_height() // 2), int(size))
-        pygame.draw.circle(preview, (*color, 150), (preview.get_width() // 2, preview.get_height() // 2), int(size), 2)
-        self.screen.blit(preview, screen_pos - Vector2(preview.get_width() / 2, preview.get_height() / 2))
+        footprint = pygame.Rect(0, 0, int(size * 1.8), int(size * 1.34))
+        footprint.center = (int(screen_pos.x), int(screen_pos.y + 4))
+        preview = pygame.Surface((footprint.width + 40, footprint.height + 48), pygame.SRCALPHA)
+        inner = pygame.Rect(20, 12, footprint.width, footprint.height)
+        pygame.draw.rect(preview, (*color, 28), inner, border_radius=16)
+        pygame.draw.rect(preview, (*color, 138), inner, 2, border_radius=16)
+        pygame.draw.ellipse(preview, (8, 12, 12, 64), pygame.Rect(inner.x + 8, inner.bottom - 4, inner.width - 16, 18))
+        self.screen.blit(preview, (footprint.x - 20, footprint.y - 12))
+        label = self.small_font.render(recipe["label"], True, color)
+        hint = self.small_font.render("Clique para erguer" if valid else "Espaco ocupado", True, PALETTE["muted"])
+        label_box = pygame.Rect(0, 0, max(label.get_width(), hint.get_width()) + 14, label.get_height() + hint.get_height() + 10)
+        label_box.midbottom = (int(screen_pos.x), int(footprint.y - 8))
+        pygame.draw.rect(self.screen, (16, 22, 24, 0), label_box, border_radius=10)
+        pygame.draw.rect(self.screen, (18, 24, 26), label_box, border_radius=10)
+        pygame.draw.rect(self.screen, color, label_box, 1, border_radius=10)
+        self.screen.blit(label, label.get_rect(midtop=(label_box.centerx, label_box.y + 3)))
+        self.screen.blit(hint, hint.get_rect(midtop=(label_box.centerx, label_box.y + 3 + label.get_height())))
 
     def draw_build_menu(self) -> None:
         panel_height = 78 + len(self.build_recipes) * 38
@@ -1303,8 +1624,8 @@ class RenderMixin:
             self.screen.blit(label, (rect.x + 10, rect.y + 4))
             self.screen.blit(cost, (rect.x + 10, rect.y + 18))
 
-    def draw_panel(self, rect: pygame.Rect) -> None:
-        hud_rendering_helpers.draw_panel(self, rect)
+    def draw_panel(self, rect: pygame.Rect, *, alpha_scale: float = 1.0) -> None:
+        hud_rendering_helpers.draw_panel(self, rect, alpha_scale=alpha_scale)
 
     def draw_resource_meter(
         self,
@@ -1372,7 +1693,7 @@ class RenderMixin:
         self.screen.blit(live_tag, (panel.right - live_tag.get_width() - 40, panel.y + 48))
 
         left_card = layout["left_card"]
-        self.draw_panel(left_card)
+        self.draw_panel(left_card, alpha_scale=0.7)
         section = self.heading_font.render("Noite Sobre a Clareira", True, PALETTE["text"])
         self.screen.blit(section, (left_card.x + 20, left_card.y + 18))
         pitch_lines = [
@@ -1414,7 +1735,7 @@ class RenderMixin:
             ) + 6
 
         right_card = layout["right_card"]
-        self.draw_panel(right_card)
+        self.draw_panel(right_card, alpha_scale=0.7)
         mouse_pos = self.input_state.mouse_screen if hasattr(self, "input_state") else Vector2()
         menu_title = self.heading_font.render("Entrada da Clareira", True, PALETTE["text"])
         self.screen.blit(menu_title, (right_card.x + 20, right_card.y + 18))
@@ -1591,18 +1912,32 @@ class RenderMixin:
         panel = layout["panel"]
         self.draw_panel(panel)
         title = self.heading_font.render("Sair da vigia?", True, PALETTE["text"])
-        subtitle_text = self.fit_text_to_width(self.body_font, "Escolha se quer salvar antes de fechar o jogo.", panel.width - 48)
-        hint_text = self.fit_text_to_width(self.ui_small_font, "Enter confirma  |  Esc cancela", panel.width - 48)
-        subtitle = self.body_font.render(subtitle_text, True, PALETTE["muted"])
-        hint = self.ui_small_font.render(hint_text, True, PALETTE["accent_soft"])
-        self.screen.blit(title, (panel.x + 24, panel.y + 20))
-        self.screen.blit(subtitle, (panel.x + 24, panel.y + 58))
-        self.screen.blit(hint, (panel.x + 24, panel.y + 84))
+        self.screen.blit(title, (panel.x + 26, panel.y + 18))
+
+        subtitle_y = self.draw_wrapped_text(
+            self.body_font,
+            "Escolha se quer salvar antes de fechar o jogo.",
+            PALETTE["muted"],
+            panel.x + 26,
+            panel.y + 58,
+            panel.width - 52,
+            line_gap=2,
+        )
+        self.draw_wrapped_text(
+            self.ui_small_font,
+            "Enter confirma  |  Esc cancela",
+            PALETTE["accent_soft"],
+            panel.x + 26,
+            subtitle_y + 8,
+            panel.width - 52,
+            line_gap=0,
+        )
 
         mouse_pos = self.input_state.mouse_screen
         for index, (rect, label) in enumerate(zip(layout["buttons"], self.exit_prompt_options)):
             active = self.exit_prompt_index == index or rect.collidepoint(mouse_pos)
-            pygame.draw.rect(self.screen, (62, 80, 84) if active else PALETTE["ui_panel"], rect, border_radius=14)
+            fill = (70, 88, 92) if active else (34, 47, 50)
+            pygame.draw.rect(self.screen, fill, rect, border_radius=14)
             pygame.draw.rect(self.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], rect, 1, border_radius=14)
-            text = self.body_font.render(self.fit_text_to_width(self.body_font, label, rect.width - 24), True, PALETTE["text"])
+            text = self.body_font.render(self.fit_text_to_width(self.body_font, label, rect.width - 28), True, PALETTE["text"])
             self.screen.blit(text, text.get_rect(center=rect.center))

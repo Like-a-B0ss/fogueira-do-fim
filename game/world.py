@@ -14,6 +14,7 @@ from .config import (
     DUSK_MINUTES,
     PALETTE,
     ROLE_COLORS,
+    TESTING_SETTINGS,
     WORLD_HEIGHT,
     WORLD_WIDTH,
     angle_to_vector,
@@ -36,6 +37,24 @@ from . import world_social_system as social_system
 
 
 class WorldMixin:
+    def unlimited_resources_enabled(self) -> bool:
+        return bool(TESTING_SETTINGS.get("unlimited_resources", False))
+
+    def maintain_unlimited_resources(self) -> None:
+        if not self.unlimited_resources_enabled():
+            return
+        reserves = {
+            "logs": 9999,
+            "wood": 9999,
+            "food": 9999,
+            "herbs": 9999,
+            "scrap": 9999,
+            "meals": 9999,
+            "medicine": 9999,
+        }
+        for resource, amount in reserves.items():
+            setattr(self, resource, amount)
+
     @property
     def is_night(self) -> bool:
         time_value = self.time_minutes % (24 * 60)
@@ -65,28 +84,57 @@ class WorldMixin:
         blend = (time_value - sunset_start) / max(1.0, sunset_end - sunset_start)
         return 1.0 - smooth_step(blend)
 
+    def weather_transition_factor(self) -> float:
+        return clamp(float(getattr(self, "weather_front_progress", 1.0)), 0.0, 1.0)
+
+    def weather_signature(self, kind: str, strength: float) -> dict[str, float]:
+        """Traduz um tipo de clima em fatores reutilizaveis por render, audio e gameplay."""
+        strength = clamp(float(strength), 0.0, 1.0)
+        signatures = {
+            "clear": {"cloud": 0.08 + strength * 0.08, "rain": 0.0, "wind": 0.12 + strength * 0.18, "mist": 0.0, "storm": 0.0, "gloom": 0.0},
+            "cloudy": {"cloud": 0.34 + strength * 0.42, "rain": 0.0, "wind": 0.16 + strength * 0.22, "mist": 0.06 + strength * 0.12, "storm": 0.0, "gloom": 0.12 + strength * 0.16},
+            "wind": {"cloud": 0.18 + strength * 0.24, "rain": 0.0, "wind": 0.34 + strength * 0.46, "mist": 0.0, "storm": 0.0, "gloom": 0.06 + strength * 0.08},
+            "rain": {"cloud": 0.46 + strength * 0.34, "rain": 0.36 + strength * 0.46, "wind": 0.18 + strength * 0.22, "mist": 0.08 + strength * 0.1, "storm": 0.0, "gloom": 0.18 + strength * 0.16},
+            "mist": {"cloud": 0.18 + strength * 0.18, "rain": 0.0, "wind": 0.04 + strength * 0.08, "mist": 0.38 + strength * 0.42, "storm": 0.0, "gloom": 0.08 + strength * 0.12},
+            "storm": {"cloud": 0.64 + strength * 0.28, "rain": 0.58 + strength * 0.34, "wind": 0.46 + strength * 0.34, "mist": 0.1 + strength * 0.1, "storm": 0.48 + strength * 0.42, "gloom": 0.28 + strength * 0.2},
+        }
+        base = signatures.get(kind, signatures["clear"])
+        return {key: clamp(value, 0.0, 1.0) for key, value in base.items()}
+
+    def blended_weather_signature(self) -> dict[str, float]:
+        current_kind = getattr(self, "weather_kind", "clear")
+        current_strength = float(getattr(self, "weather_strength", 0.0))
+        target_kind = getattr(self, "weather_target_kind", current_kind)
+        target_strength = float(getattr(self, "weather_target_strength", current_strength))
+        blend = self.weather_transition_factor()
+        current = self.weather_signature(current_kind, current_strength)
+        target = self.weather_signature(target_kind, target_strength)
+        return {key: lerp(current[key], target[key], blend) for key in current}
+
     def weather_cloud_cover(self) -> float:
         """Converte o clima atual em cobertura de nuvens para render, audio e gameplay."""
-        kind = getattr(self, "weather_kind", "clear")
-        strength = float(getattr(self, "weather_strength", 0.0))
-        if kind == "clear":
-            return clamp(0.04 + strength * 0.08, 0.04, 0.16)
-        if kind == "cloudy":
-            return clamp(0.34 + strength * 0.42, 0.34, 0.82)
-        if kind == "wind":
-            return clamp(0.16 + strength * 0.24, 0.16, 0.56)
-        if kind == "rain":
-            return clamp(0.44 + strength * 0.42, 0.44, 0.92)
-        return 0.0
+        return clamp(self.blended_weather_signature()["cloud"], 0.0, 0.94)
+
+    def weather_precipitation_factor(self) -> float:
+        return clamp(self.blended_weather_signature()["rain"], 0.0, 1.0)
+
+    def weather_wind_factor(self) -> float:
+        return clamp(self.blended_weather_signature()["wind"], 0.0, 1.0)
+
+    def weather_mist_factor(self) -> float:
+        return clamp(self.blended_weather_signature()["mist"], 0.0, 1.0)
+
+    def weather_storm_factor(self) -> float:
+        return clamp(self.blended_weather_signature()["storm"], 0.0, 1.0)
 
     def visual_darkness_factor(self) -> float:
         """Mistura noite e cobertura de nuvens em um unico fator de penumbra."""
         daylight = self.daylight_factor()
-        cloud_cover = self.weather_cloud_cover()
-        weather_kind = getattr(self, "weather_kind", "clear")
+        signature = self.blended_weather_signature()
+        cloud_cover = signature["cloud"]
         base_darkness = 1.0 - daylight
         cloud_darkness = cloud_cover * (0.42 * daylight + 0.14)
-        weather_bias = 0.05 if weather_kind == "rain" else (0.02 if weather_kind == "wind" else 0.0)
+        weather_bias = signature["gloom"] + signature["storm"] * 0.08 + signature["mist"] * 0.04
         return clamp(base_darkness + cloud_darkness + weather_bias, 0.0, 1.0)
 
     def daylight_phase_label(self) -> str:
@@ -106,17 +154,23 @@ class WorldMixin:
 
     def weather_mood_label(self) -> str:
         """Traduz a combinacao de clima e intensidade para uma leitura curta."""
-        kind = getattr(self, "weather_kind", "clear")
-        strength = float(getattr(self, "weather_strength", 0.0))
-        if kind == "clear":
-            return "ceu aberto" if strength < 0.4 else "claridade limpa"
-        if kind == "cloudy":
-            return "nublado leve" if strength < 0.56 else "nublado pesado"
-        if kind == "wind":
-            return "vento leve" if strength < 0.56 else "vento forte"
-        if kind == "rain":
-            return "garoa fria" if strength < 0.6 else "chuva fechada"
-        return "tempo instavel"
+        signature = self.blended_weather_signature()
+        storm = signature["storm"]
+        rain = signature["rain"]
+        mist = signature["mist"]
+        wind = signature["wind"]
+        cloud = signature["cloud"]
+        if storm > 0.32:
+            return "tempestade armando" if storm < 0.62 else "tempestade pesada"
+        if rain > 0.56:
+            return "garoa fria" if rain < 0.72 else "chuva fechada"
+        if mist > 0.46:
+            return "bruma leve" if mist < 0.7 else "neblina grossa"
+        if wind > 0.48:
+            return "vento leve" if wind < 0.68 else "vento forte"
+        if cloud > 0.34:
+            return "nublado leve" if cloud < 0.62 else "nublado pesado"
+        return "ceu aberto" if cloud < 0.14 else "claridade limpa"
 
     def random_world_pos(self, margin: float = 140) -> Vector2:
         return Vector2(
@@ -505,6 +559,152 @@ class WorldMixin:
             int(half * 2),
         )
 
+    def camp_visual_ellipses(self, padding: float = 0.0) -> list[pygame.Rect]:
+        """Retorna manchas elipticas para desenhar a clareira de forma mais organica."""
+        half = self.camp_half_size + padding
+        specs = (
+            (-0.04, -0.01, 2.08, 1.72),
+            (0.03, 0.10, 1.76, 1.34),
+            (-0.26, 0.20, 0.96, 0.68),
+            (0.30, -0.15, 0.88, 0.62),
+            (0.22, 0.27, 0.76, 0.54),
+            (-0.33, -0.18, 0.78, 0.56),
+        )
+        ellipses: list[pygame.Rect] = []
+        for offset_x, offset_y, width_scale, height_scale in specs:
+            width = half * width_scale
+            height = half * height_scale
+            center = CAMP_CENTER + Vector2(half * offset_x, half * offset_y)
+            rect = pygame.Rect(0, 0, int(width), int(height))
+            rect.center = (int(center.x), int(center.y))
+            ellipses.append(rect)
+        return ellipses
+
+    def camp_visual_bounds(self, padding: float = 0.0) -> pygame.Rect:
+        ellipses = self.camp_visual_ellipses(padding)
+        if not ellipses:
+            return self.camp_rect(padding)
+        bounds = ellipses[0].copy()
+        for rect in ellipses[1:]:
+            bounds.union_ip(rect)
+        return bounds
+
+    def camp_ground_anchors(self) -> list[Vector2]:
+        """Pontos importantes usados para desenhar desgaste e trilhas internas da clareira."""
+        anchors = [
+            Vector2(CAMP_CENTER),
+            Vector2(self.stockpile_pos),
+            Vector2(self.workshop_pos),
+            Vector2(self.kitchen_pos),
+            Vector2(self.radio_pos),
+        ]
+        anchors.extend(Vector2(tent["pos"]) for tent in self.tents)
+        return anchors
+
+    def paint_camp_ground(self, surface: pygame.Surface) -> None:
+        """Desenha uma clareira mais organica, com terra batida e desgaste de uso."""
+        camp_surface = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
+        earth_dark = (88, 63, 42)
+        earth_mid = (118, 85, 56)
+        earth_light = (154, 114, 74)
+        earth_dust = (176, 136, 92)
+        clearing_layers = (
+            (self.camp_visual_ellipses(102), (*PALETTE["clearing"], 56)),
+            (self.camp_visual_ellipses(42), (*earth_mid, 44)),
+            (self.camp_visual_ellipses(-6), (*earth_light, 34)),
+        )
+        for ellipses, color in clearing_layers:
+            for ellipse in ellipses:
+                pygame.draw.ellipse(camp_surface, color, ellipse)
+
+        packed_earth = (
+            (pygame.Rect(int(CAMP_CENTER.x - self.camp_half_size * 0.98), int(CAMP_CENTER.y - self.camp_half_size * 0.62), int(self.camp_half_size * 1.96), int(self.camp_half_size * 1.24)), (*earth_dark, 54)),
+            (pygame.Rect(int(CAMP_CENTER.x - self.camp_half_size * 0.86), int(CAMP_CENTER.y - self.camp_half_size * 0.54), int(self.camp_half_size * 1.72), int(self.camp_half_size * 1.08)), (*earth_mid, 72)),
+            (pygame.Rect(int(CAMP_CENTER.x - self.camp_half_size * 0.62), int(CAMP_CENTER.y - self.camp_half_size * 0.38), int(self.camp_half_size * 1.24), int(self.camp_half_size * 0.76)), (*earth_light, 54)),
+            (pygame.Rect(int(self.stockpile_pos.x - 104), int(self.stockpile_pos.y - 58), 208, 116), (*earth_mid, 58)),
+            (pygame.Rect(int(self.workshop_pos.x - 94), int(self.workshop_pos.y - 52), 188, 104), (*earth_mid, 54)),
+            (pygame.Rect(int(self.kitchen_pos.x - 88), int(self.kitchen_pos.y - 48), 176, 96), (*earth_mid, 50)),
+            (pygame.Rect(int(self.radio_pos.x - 72), int(self.radio_pos.y - 42), 144, 84), (*earth_light, 38)),
+        )
+        for rect, color in packed_earth:
+            pygame.draw.ellipse(camp_surface, color, rect)
+
+        anchor_paths = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
+        center = Vector2(CAMP_CENTER)
+        for anchor in self.camp_ground_anchors():
+            if anchor.distance_to(center) < 8:
+                continue
+            sway = Vector2((anchor.y - center.y) * 0.04, (center.x - anchor.x) * 0.04)
+            points = [center, center.lerp(anchor, 0.45) + sway, anchor]
+            pygame.draw.lines(anchor_paths, (*earth_dark, 82), False, points, 44)
+            pygame.draw.lines(anchor_paths, (*earth_mid, 76), False, points, 26)
+            pygame.draw.lines(anchor_paths, (*earth_light, 42), False, points, 10)
+        camp_surface.blit(anchor_paths, (0, 0))
+
+        worn_patches = (
+            pygame.Rect(int(CAMP_CENTER.x - self.camp_half_size * 0.78), int(CAMP_CENTER.y - 26), int(self.camp_half_size * 1.56), 74),
+            pygame.Rect(int(CAMP_CENTER.x - 62), int(CAMP_CENTER.y - self.camp_half_size * 0.62), 124, int(self.camp_half_size * 1.18)),
+            pygame.Rect(int(self.workshop_pos.x - 74), int(self.workshop_pos.y - 42), 148, 84),
+            pygame.Rect(int(self.kitchen_pos.x - 72), int(self.kitchen_pos.y - 40), 144, 80),
+            pygame.Rect(int(self.radio_pos.x - 58), int(self.radio_pos.y - 34), 116, 68),
+            pygame.Rect(int(CAMP_CENTER.x - 88), int(CAMP_CENTER.y - 70), 176, 140),
+        )
+        patch_colors = (
+            (102, 74, 50, 42),
+            (126, 91, 60, 34),
+            (158, 116, 78, 26),
+        )
+        for index, patch in enumerate(worn_patches):
+            pygame.draw.ellipse(camp_surface, patch_colors[index % len(patch_colors)], patch)
+
+        for _ in range(320):
+            offset = Vector2(
+                self.random.uniform(-self.camp_half_size * 0.94, self.camp_half_size * 0.94),
+                self.random.uniform(-self.camp_half_size * 0.82, self.camp_half_size * 0.82),
+            )
+            pos = CAMP_CENTER + offset
+            if not self.point_in_camp_square(pos, -12):
+                continue
+            width = self.random.randint(6, 16)
+            height = self.random.randint(3, 9)
+            dust = pygame.Rect(0, 0, width, height)
+            dust.center = (int(pos.x), int(pos.y))
+            dust_color = (*earth_dust, self.random.randint(20, 42))
+            pygame.draw.ellipse(camp_surface, dust_color, dust)
+
+        edge_tufts = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
+        for ellipse in self.camp_visual_ellipses(84):
+            for _ in range(18):
+                angle = self.random.random() * math.tau
+                rim = Vector2(ellipse.width * 0.5 * math.cos(angle), ellipse.height * 0.5 * math.sin(angle))
+                pos = Vector2(ellipse.center) + rim * self.random.uniform(0.82, 1.03)
+                tuft = pygame.Rect(0, 0, self.random.randint(18, 34), self.random.randint(8, 16))
+                tuft.center = (int(pos.x), int(pos.y))
+                color = (54, 84, 47, self.random.randint(26, 40))
+                pygame.draw.ellipse(edge_tufts, color, tuft)
+        camp_surface.blit(edge_tufts, (0, 0))
+
+        ember_ring = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
+        for radius, alpha in ((132, 10), (94, 16), (62, 22)):
+            rect = pygame.Rect(0, 0, radius * 2, int(radius * 1.45))
+            rect.center = (int(self.bonfire_pos.x), int(self.bonfire_pos.y + 10))
+            pygame.draw.ellipse(ember_ring, (184, 136, 82, alpha), rect)
+        camp_surface.blit(ember_ring, (0, 0))
+
+        for _ in range(120):
+            offset = Vector2(
+                self.random.uniform(-self.camp_half_size * 0.92, self.camp_half_size * 0.92),
+                self.random.uniform(-self.camp_half_size * 0.92, self.camp_half_size * 0.92),
+            )
+            pos = CAMP_CENTER + offset
+            if not self.point_in_camp_square(pos, 10):
+                continue
+            stone = pygame.Rect(0, 0, self.random.randint(4, 10), self.random.randint(2, 5))
+            stone.center = (int(pos.x), int(pos.y))
+            pygame.draw.ellipse(camp_surface, (96, 98, 82, self.random.randint(18, 34)), stone)
+
+        surface.blit(camp_surface, (0, 0))
+
     def point_in_camp_square(self, pos: Vector2, padding: float = 0.0) -> bool:
         rect = self.camp_rect(padding)
         return rect.left <= pos.x <= rect.right and rect.top <= pos.y <= rect.bottom
@@ -582,13 +782,13 @@ class WorldMixin:
 
     def create_build_recipes(self) -> list[dict[str, object]]:
         return [
-            {"kind": "barraca", "label": "Barraca", "wood": 8, "scrap": 2, "size": 34, "hint": "+2 camas"},
-            {"kind": "torre", "label": "Torre", "wood": 10, "scrap": 6, "size": 28, "hint": "vigia especializado"},
-            {"kind": "horta", "label": "Horta", "wood": 6, "scrap": 2, "size": 30, "hint": "mais comida"},
-            {"kind": "anexo", "label": "Anexo", "wood": 10, "scrap": 8, "size": 32, "hint": "reforca barricadas"},
-            {"kind": "serraria", "label": "Serraria", "wood": 12, "scrap": 4, "size": 34, "hint": "toras viram tabuas"},
-            {"kind": "cozinha", "label": "Cozinha", "wood": 10, "scrap": 4, "size": 34, "hint": "refeicoes em lote"},
-            {"kind": "enfermaria", "label": "Enfermaria", "wood": 9, "scrap": 7, "size": 34, "hint": "cura e remedios"},
+            {"kind": "barraca", "label": "Barraca", "wood": 6, "scrap": 1, "size": 34, "hint": "+2 camas"},
+            {"kind": "torre", "label": "Torre", "wood": 9, "scrap": 5, "size": 28, "hint": "vigia especializado"},
+            {"kind": "horta", "label": "Horta", "wood": 4, "scrap": 1, "size": 30, "hint": "mais comida"},
+            {"kind": "anexo", "label": "Anexo", "wood": 8, "scrap": 6, "size": 32, "hint": "reforca barricadas"},
+            {"kind": "serraria", "label": "Serraria", "wood": 8, "scrap": 3, "size": 34, "hint": "toras viram tabuas"},
+            {"kind": "cozinha", "label": "Cozinha", "wood": 7, "scrap": 3, "size": 34, "hint": "refeicoes em lote"},
+            {"kind": "enfermaria", "label": "Enfermaria", "wood": 7, "scrap": 5, "size": 34, "hint": "cura e remedios"},
         ]
 
     def create_faction_standings(self) -> dict[str, float]:
@@ -707,7 +907,7 @@ class WorldMixin:
         population = 1 + len(self.living_survivors())
         phase = self.economy_phase_key()
         factor = {
-            "early": 0.6,
+            "early": 0.48,
             "mid": 0.82,
             "late": 1.05,
         }[phase]
@@ -1042,6 +1242,10 @@ class WorldMixin:
                 return infirmary.pos, "E tratar ferimentos"
             return infirmary.pos, "Enfermaria sem uso imediato"
 
+        manual_building = self.nearest_player_usable_building(player.pos)
+        if manual_building:
+            return manual_building.pos, self.player_building_prompt(manual_building, player)
+
         for survivor in self.survivors:
             if survivor.distance_to(player.pos) < 92:
                 return survivor.pos, f"E conversar com {survivor.name.lower()}"
@@ -1096,9 +1300,15 @@ class WorldMixin:
         consider("radio", Vector2(self.radio_pos), radius=42, reach=132)
         consider("bonfire", Vector2(self.bonfire_pos), radius=46, reach=130)
 
-        infirmary = self.nearest_building_of_kind("enfermaria", cursor_world)
-        if infirmary and cursor_world.distance_to(infirmary.pos) < 40:
-            consider("infirmary", Vector2(infirmary.pos), radius=40, reach=122, obj=infirmary)
+        for building in self.buildings:
+            if building.kind in {"serraria", "cozinha", "horta", "anexo", "torre", "enfermaria"}:
+                consider(
+                    f"building:{building.kind}",
+                    Vector2(building.pos),
+                    radius=max(26, building.size * 0.72),
+                    reach=self.player_building_reach(building.kind),
+                    obj=building,
+                )
 
         sleep_slot = self.nearest_sleep_slot(cursor_world)
         if sleep_slot and cursor_world.distance_to(Vector2(sleep_slot["interact_pos"])) < 44:
@@ -1113,12 +1323,86 @@ class WorldMixin:
         candidates.sort(key=lambda item: item[0])
         return candidates[0][1]
 
+    def hovered_interaction_target(self) -> dict[str, object] | None:
+        """Retorna o alvo atualmente sob o mouse na tela."""
+        if not hasattr(self, "input_state"):
+            return None
+        return self.mouse_interaction_target(self.screen_to_world(self.input_state.mouse_screen))
+
+    def prompt_for_interaction_target(self, target: dict[str, object]) -> str | None:
+        """Traduz um alvo do mouse para o texto curto de interacao exibido na HUD."""
+        kind = str(target.get("kind", ""))
+        obj = target.get("obj")
+
+        if kind.startswith("event:") and obj:
+            event_kind = str(kind.split(":", 1)[1])
+            if event_kind == "faccao":
+                humane = dict(obj.data.get("humane", {}))
+                hardline = dict(obj.data.get("hardline", {}))
+                return f"E {humane.get('title', 'ceder')}  |  Q {hardline.get('title', 'pressionar')}"
+            if event_kind == "expedicao":
+                return "E socorrer equipe na trilha"
+            if event_kind == "abrigo":
+                return "E acolher forasteiro"
+            if event_kind == "incendio":
+                return "E conter incendio"
+            if event_kind == "alarme":
+                return "E responder ao alarme da cerca"
+            if event_kind == "fuga":
+                return "E acalmar morador"
+            if event_kind == "desercao":
+                return "E impedir desercao"
+            if event_kind == "doenca":
+                return "E estabilizar doente"
+        if kind == "downed_member" and obj:
+            return f"E levantar {obj.name.lower()} na trilha"
+        if kind == "interest" and obj:
+            return f"E investigar {obj.label}"
+        if kind == "node:food":
+            return "E colher suprimentos"
+        if kind == "node:scrap":
+            return "E vasculhar sucata"
+        if kind == "barricade" and obj:
+            if obj.health < obj.max_health and self.wood >= 1:
+                return "E reforcar barricada"
+            if getattr(obj, "spike_level", 0) >= 3:
+                return "Spikes no maximo"
+            wood_cost, scrap_cost = self.barricade_upgrade_cost(obj)
+            return f"E melhorar spikes ({wood_cost} tabuas, {scrap_cost} sucata)"
+        if kind == "workshop":
+            if self.can_use_workshop_saw():
+                if self.can_expand_camp():
+                    return "E cortar tabuas  |  Q ampliar acampamento"
+                return "E cortar tabuas na oficina"
+            if self.can_expand_camp():
+                return "E ampliar acampamento"
+            if self.camp_level < self.max_camp_level:
+                log_cost, scrap_cost = self.expansion_cost()
+                return f"Precisa {log_cost} toras e {scrap_cost} sucata"
+            return "Oficina livre"
+        if kind == "radio":
+            if self.active_expedition:
+                return "E revisar expedicao  |  Q recolher equipe"
+            target_region = self.best_expedition_region()
+            if target_region:
+                return f"E enviar expedicao para {target_region['name']}"
+            return "Sem regiao conhecida para expedicao"
+        if kind == "bonfire":
+            return "E alimentar fogueira" if self.available_fuel() >= 1 else "Sem combustivel para o fogo"
+        if kind == "sleep":
+            return "E dormir e acelerar o tempo" if not self.active_dynamic_events else "Crise ativa impede descanso"
+        if kind.startswith("building:") and obj:
+            return self.player_building_prompt(obj, self.player)
+        if kind == "survivor" and obj:
+            return f"E conversar com {obj.name.lower()}"
+        return None
+
     def total_bed_capacity(self) -> int:
         return len(self.camp_sleep_slots())
 
     def expansion_cost(self) -> tuple[int, int]:
-        base_logs = 12 + self.camp_level * 6
-        base_scrap = 8 + self.camp_level * 4
+        base_logs = 9 + self.camp_level * 6
+        base_scrap = 5 + self.camp_level * 4
         phase = self.economy_phase_key()
         multiplier = {
             "early": 1.0,
@@ -1156,9 +1440,28 @@ class WorldMixin:
     def placement_size_for(self, kind: str) -> float:
         return float(self.build_recipe_for(kind)["size"])
 
+    def build_placement_profile(self, kind: str) -> dict[str, float]:
+        """Controla o quanto cada estrutura precisa respirar dentro da base."""
+        profiles = {
+            "barraca": {"edge": 10, "core": 26, "tent": 10, "building": 8, "wall": 16},
+            "torre": {"edge": 12, "core": 34, "tent": 16, "building": 10, "wall": 12},
+            "horta": {"edge": 10, "core": 22, "tent": 10, "building": 8, "wall": 14},
+            "anexo": {"edge": 10, "core": 26, "tent": 12, "building": 10, "wall": 16},
+            "serraria": {"edge": 12, "core": 28, "tent": 14, "building": 10, "wall": 16},
+            "cozinha": {"edge": 12, "core": 28, "tent": 14, "building": 10, "wall": 16},
+            "enfermaria": {"edge": 12, "core": 28, "tent": 14, "building": 10, "wall": 16},
+        }
+        return profiles.get(kind, {"edge": 12, "core": 28, "tent": 12, "building": 10, "wall": 16})
+
+    def placement_collision_radius(self, kind: str) -> float:
+        """Aproxima o footprint real da estrutura para liberar mais espaco util."""
+        return self.placement_size_for(kind) * 0.72
+
     def is_valid_build_position(self, kind: str, pos: Vector2) -> bool:
         size = self.placement_size_for(kind)
-        if not self.point_in_camp_square(pos, padding=-(size + 24)):
+        radius = self.placement_collision_radius(kind)
+        profile = self.build_placement_profile(kind)
+        if not self.point_in_camp_square(pos, padding=-(radius + profile["edge"])):
             return False
         core_positions = [
             self.bonfire_pos,
@@ -1167,20 +1470,159 @@ class WorldMixin:
             self.workshop_pos,
             self.radio_pos,
         ]
-        if any(pos.distance_to(core) < size + 44 for core in core_positions):
+        if any(pos.distance_to(core) < radius + profile["core"] for core in core_positions):
             return False
-        if any(pos.distance_to(Vector2(tent["pos"])) < size + 28 for tent in self.tents):
-            return False
-        if any(pos.distance_to(building.pos) < size + building.size + 12 for building in self.buildings):
+        if any(pos.distance_to(Vector2(tent["pos"])) < radius + profile["tent"] for tent in self.tents):
             return False
         if any(
-            request.approved and pos.distance_to(request.pos) < size + request.size + 12
+            pos.distance_to(building.pos) < radius + building.size * 0.68 + profile["building"]
+            for building in self.buildings
+        ):
+            return False
+        if any(
+            request.approved and pos.distance_to(request.pos) < radius + request.size * 0.68 + profile["building"]
             for request in self.build_requests
         ):
             return False
-        if any(pos.distance_to(barricade.pos) < size + 32 for barricade in self.barricades):
+        if any(pos.distance_to(barricade.pos) < radius + profile["wall"] for barricade in self.barricades):
             return False
         return True
+
+    def player_building_reach(self, kind: str) -> float:
+        return {
+            "serraria": 110.0,
+            "cozinha": 104.0,
+            "horta": 98.0,
+            "anexo": 106.0,
+            "torre": 112.0,
+            "enfermaria": 104.0,
+        }.get(kind, 100.0)
+
+    def nearest_player_usable_building(self, pos: Vector2, max_distance: float = 116.0) -> Building | None:
+        allowed = {"serraria", "cozinha", "horta", "anexo", "torre", "enfermaria"}
+        candidates = [
+            building
+            for building in self.buildings
+            if building.kind in allowed and building.pos.distance_to(pos) <= self.player_building_reach(building.kind)
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda building: building.pos.distance_to(pos))
+
+    def player_building_prompt(self, building: Building, player) -> str:
+        kind = building.kind
+        if kind == "serraria":
+            if self.logs >= 2:
+                return "E usar serraria"
+            return "Serraria sem toras"
+        if kind == "cozinha":
+            if self.food >= 2 and self.available_fuel() > 0:
+                return "E cozinhar em lote"
+            if self.available_fuel() <= 0:
+                return "Cozinha sem combustivel"
+            return "Cozinha sem insumos"
+        if kind == "horta":
+            if self.is_night:
+                return "Horta descansando a noite"
+            return "E colher horta"
+        if kind == "anexo":
+            weakest = self.weakest_barricade()
+            if weakest and weakest.health < weakest.max_health and self.wood > 0:
+                return "E montar kit de reparo"
+            return "Anexo pronto para manutencao"
+        if kind == "torre":
+            if self.find_closest_zombie(building.pos, 250):
+                return "E usar torre de vigia"
+            return "Torre em vigia"
+        if kind == "enfermaria":
+            if self.has_medical_supplies() and player.health < player.max_health - 8:
+                return "E tratar ferimentos"
+            if self.herbs > 0 and self.scrap > 0:
+                return "E preparar remedio"
+            return "Enfermaria tranquila"
+        return "E usar estrutura"
+
+    def use_building_as_player(self, building: Building, player) -> bool:
+        kind = building.kind
+        if kind == "serraria":
+            if self.logs < 2:
+                self.spawn_floating_text("faltam toras", building.pos, PALETTE["muted"])
+                return False
+            produced = self.sawmill_output("lenhador")
+            if not self.consume_resource("logs", 2):
+                return False
+            stored = self.add_resource_bundle({"wood": produced})
+            self.spawn_floating_text(self.bundle_summary(stored or {"wood": produced}), building.pos, PALETTE["accent_soft"])
+            self.impact_burst(building.pos, PALETTE["accent_soft"], radius=12, shake=0.45, ember_count=3, smoky=True)
+            self.set_event_message("A serraria mordeu as toras e soltou tabuas para a base.", duration=4.6)
+            return True
+        if kind == "cozinha":
+            if self.food < 2:
+                self.spawn_floating_text("faltam insumos", building.pos, PALETTE["muted"])
+                return False
+            if self.available_fuel() <= 0:
+                self.spawn_floating_text("sem combustivel", building.pos, PALETTE["muted"])
+                return False
+            produced = self.cookhouse_output("cozinheiro")
+            if not self.consume_resource("food", 2) or not self.consume_fuel(1):
+                return False
+            stored = self.add_resource_bundle({"meals": produced})
+            self.spawn_floating_text(self.bundle_summary(stored or {"meals": produced}), building.pos, PALETTE["morale"])
+            self.emit_embers(building.pos, 5)
+            self.set_event_message("A cozinha encheu o ar com comida quente para a clareira.", duration=4.6)
+            return True
+        if kind == "horta":
+            if self.is_night:
+                self.spawn_floating_text("horta fechada", building.pos, PALETTE["muted"])
+                return False
+            bundle = self.garden_harvest_bundle("cozinheiro")
+            stored = self.add_resource_bundle(bundle)
+            self.spawn_floating_text(self.bundle_summary(stored or bundle), building.pos, PALETTE["heal"])
+            self.set_event_message("A horta rendeu um pouco de folego para o estoque.", duration=4.2)
+            return True
+        if kind == "anexo":
+            weakest = self.weakest_barricade()
+            if not weakest or weakest.health >= weakest.max_health or self.wood <= 0:
+                self.spawn_floating_text("sem reparo urgente", building.pos, PALETTE["muted"])
+                return False
+            self.wood -= 1
+            weakest.repair(self.workbench_repair_amount())
+            self.spawn_floating_text("kit de reparo", weakest.pos, PALETTE["heal"])
+            self.impact_burst(weakest.pos, PALETTE["heal"], radius=12, shake=0.55, ember_count=2, smoky=True)
+            self.set_event_message("O anexo virou manutencao rapida na linha defensiva.", duration=4.4)
+            return True
+        if kind == "torre":
+            zombie = self.find_closest_zombie(building.pos, 250)
+            if not zombie:
+                self.spawn_floating_text("sem alvo na mata", building.pos, PALETTE["muted"])
+                return False
+            zombie.health -= 28
+            zombie.stagger = max(zombie.stagger, 0.18)
+            self.damage_pulses.append(DamagePulse(Vector2(zombie.pos), 14, 0.24, PALETTE["accent_soft"]))
+            self.spawn_floating_text("tiro da torre", building.pos, PALETTE["energy"])
+            return True
+        if kind == "enfermaria":
+            if self.has_medical_supplies() and player.health < player.max_health - 8:
+                if self.medicine > 0:
+                    self.medicine -= 1
+                    player.health = clamp(player.health + 26, 0, player.max_health)
+                    self.spawn_floating_text("curativo pesado", building.pos, PALETTE["heal"])
+                elif self.herbs > 0:
+                    self.herbs -= 1
+                    player.health = clamp(player.health + 14, 0, player.max_health)
+                    self.spawn_floating_text("ervas medicinais", building.pos, PALETTE["heal"])
+                return True
+            if self.herbs > 0 and self.scrap > 0:
+                self.herbs -= 1
+                self.scrap -= 1
+                produced = self.clinic_medicine_output()
+                stored = self.add_resource_bundle({"medicine": produced})
+                self.spawn_floating_text(self.bundle_summary(stored or {"medicine": produced}), building.pos, PALETTE["heal"])
+                self.set_event_message("A enfermaria montou remedios de campo para a proxima crise.", duration=4.8)
+                return True
+            self.spawn_floating_text("sem uso imediato", building.pos, PALETTE["muted"])
+            return False
+        return False
 
     def place_building(self, kind: str, pos: Vector2) -> bool:
         recipe = self.build_recipe_for(kind)
@@ -1270,8 +1712,8 @@ class WorldMixin:
 
     def workshop_plank_bundle(self, role: str | None = None) -> dict[str, int]:
         """A oficina e lenta: serve para destravar o comeco, nao para substituir a serraria."""
-        produced = 1
-        if role in {"artesa", "lenhador"} and self.random.random() < 0.2:
+        produced = 2
+        if role in {"artesa", "lenhador"} and self.random.random() < 0.3:
             produced += 1
         return {"wood": produced}
 
@@ -1289,6 +1731,8 @@ class WorldMixin:
         return stored
 
     def stockpile_capacity(self, resource: str) -> int:
+        if self.unlimited_resources_enabled():
+            return 9999
         base = {
             "logs": 26,
             "wood": 34,
@@ -1386,13 +1830,10 @@ class WorldMixin:
         return "brasas"
 
     def update_bonfire(self, dt: float) -> None:
-        weather_drag = 0.0
-        if getattr(self, "weather_kind", "clear") == "rain":
-            weather_drag += 0.38 * getattr(self, "weather_strength", 0.0)
-        elif getattr(self, "weather_kind", "clear") == "cloudy":
-            weather_drag += 0.05 * getattr(self, "weather_strength", 0.0)
-        elif getattr(self, "weather_kind", "clear") == "wind":
-            weather_drag += 0.14 * getattr(self, "weather_strength", 0.0)
+        weather_drag = self.weather_precipitation_factor() * 0.38
+        weather_drag += self.weather_wind_factor() * 0.14
+        weather_drag += self.weather_mist_factor() * 0.05
+        weather_drag += self.weather_storm_factor() * 0.16
 
         dark_factor = self.visual_darkness_factor()
         ember_decay = lerp(0.11, 0.18, dark_factor) + weather_drag * 0.55
@@ -1659,11 +2100,11 @@ class WorldMixin:
         self.layout_camp_core()
         self.path_network = self.generate_path_network()
         self.tents = self.generate_tents()
-        self.barricades = self.generate_barricades()
+        self.reflow_barricades_for_current_camp_size()
         self.refresh_barricade_strength()
         self.sync_survivor_assignments()
         self.terrain_surface = self.build_terrain_surface()
-        self.fog_of_war = self.create_fog_of_war_surface()
+        self.record_fog_reveal(CAMP_CENTER, self.camp_clearance_radius() + 120)
         self.set_event_message("A oficina abriu mais espaco e reforcou o quadrado do acampamento.", duration=7.0)
         self.spawn_floating_text("acampamento ampliado", self.workshop_pos, PALETTE["accent_soft"])
         self.emit_embers(self.workshop_pos, 10, smoky=True)
@@ -1785,39 +2226,36 @@ class WorldMixin:
         return interest_points
 
     def create_fog_of_war_surface(self) -> pygame.Surface:
-        fog = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
-        fog.fill((0, 0, 0, 242))
-        self.reveal_area_on_map(fog, CAMP_CENTER, self.camp_clearance_radius() + 120)
-        self.reveal_area_on_map(fog, self.player.pos, 156)
-        return fog
+        self.fog_reveals: list[tuple[Vector2, float]] = []
+        self.fog_reveal_keys: set[tuple[int, int, int]] = set()
+        self.record_fog_reveal(CAMP_CENTER, self.camp_clearance_radius() + 120)
+        self.record_fog_reveal(self.player.pos, 156)
+        return pygame.Surface((1, 1), pygame.SRCALPHA)
 
-    def reveal_area_on_map(self, fog_surface: pygame.Surface, center: Vector2, radius: float) -> None:
-        diameter = int(radius * 2.8)
-        reveal = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
-        reveal_center = Vector2(diameter / 2, diameter / 2)
-        pygame.draw.circle(reveal, (0, 0, 0, 58), (int(reveal_center.x), int(reveal_center.y)), int(radius * 1.16))
-        pygame.draw.circle(reveal, (0, 0, 0, 92), (int(reveal_center.x), int(reveal_center.y)), int(radius * 0.9))
-        pygame.draw.circle(reveal, (0, 0, 0, 132), (int(reveal_center.x), int(reveal_center.y)), int(radius * 0.68))
-        pygame.draw.circle(reveal, (0, 0, 0, 220), (int(reveal_center.x), int(reveal_center.y)), int(radius * 0.46))
-        for index in range(6):
-            angle = index / 6 * math.tau
-            offset = angle_to_vector(angle) * radius * 0.28
-            pygame.draw.circle(
-                reveal,
-                (0, 0, 0, 72),
-                (int(reveal_center.x + offset.x), int(reveal_center.y + offset.y)),
-                int(radius * 0.32),
-            )
-        top_left = center - reveal_center
-        fog_surface.blit(reveal, (int(top_left.x), int(top_left.y)), special_flags=pygame.BLEND_RGBA_SUB)
+    def fog_reveal_key(self, center: Vector2, radius: float) -> tuple[int, int, int]:
+        return (int(center.x // 26), int(center.y // 26), int(radius // 8))
+
+    def record_fog_reveal(self, center: Vector2, radius: float) -> None:
+        key = self.fog_reveal_key(center, radius)
+        if key in getattr(self, "fog_reveal_keys", set()):
+            return
+        self.fog_reveal_keys.add(key)
+        self.fog_reveals.append((Vector2(center), float(radius)))
+
+    def visible_fog_reveals(self, view_rect: pygame.Rect) -> list[tuple[Vector2, float]]:
+        margin_rect = view_rect.inflate(420, 420)
+        visible: list[tuple[Vector2, float]] = []
+        for center, radius in getattr(self, "fog_reveals", []):
+            if margin_rect.collidepoint(int(center.x), int(center.y)):
+                visible.append((center, radius))
+        return visible
 
     def reveal_world_around_player(self) -> None:
-        self.reveal_area_on_map(self.fog_of_war, self.player.pos, 146)
+        self.record_fog_reveal(self.player.pos, 186)
         if self.player.distance_to(self.bonfire_pos) < self.camp_clearance_radius() + 40:
-            self.reveal_area_on_map(self.fog_of_war, CAMP_CENTER, self.camp_clearance_radius() + 88)
-        for survivor in self.survivors:
-            if survivor.is_alive() and survivor.distance_to(self.player.pos) < 260:
-                self.reveal_area_on_map(self.fog_of_war, survivor.pos, 74)
+            self.record_fog_reveal(CAMP_CENTER, self.camp_clearance_radius() + 88)
+        for survivor in self.living_survivors():
+            self.record_fog_reveal(survivor.pos, 92)
 
     def feature_label(self, kind: str) -> str:
         return {
@@ -2167,12 +2605,10 @@ class WorldMixin:
 
         distance = Vector2(target_region["anchor"]).distance_to(CAMP_CENTER)
         duration = 42.0 + distance / 120 + float(target_region.get("expedition_danger", 0.35)) * 20
-        if self.weather_kind == "rain":
-            duration += 8.0
-        elif self.weather_kind == "cloudy":
-            duration += 3.0
-        elif self.weather_kind == "wind":
-            duration += 4.0
+        duration += self.weather_precipitation_factor() * 8.0
+        duration += self.weather_wind_factor() * 4.0
+        duration += self.weather_mist_factor() * 3.0
+        duration += self.weather_storm_factor() * 6.0
         target_region["expedition_sites"] = max(0, int(target_region.get("expedition_sites", 1)) - 1)
 
         for survivor in members:
@@ -2233,12 +2669,10 @@ class WorldMixin:
         danger = float(expedition["danger"])
         if region and region.get("boss_blueprint") and not region.get("boss_defeated"):
             danger += 0.18
-        if self.weather_kind == "rain":
-            danger += 0.1
-        elif self.weather_kind == "cloudy":
-            danger += 0.03
-        elif self.weather_kind == "wind":
-            danger += 0.05
+        danger += self.weather_precipitation_factor() * 0.1
+        danger += self.weather_wind_factor() * 0.05
+        danger += self.weather_mist_factor() * 0.04
+        danger += self.weather_storm_factor() * 0.08
         if expedition.get("recall_ordered", False):
             danger += 0.08
 
@@ -2399,10 +2833,9 @@ class WorldMixin:
         if can_spawn_distress:
             expedition["distress_checked"] = True
             distress_chance = 0.28 + float(expedition["danger"]) * 0.62
-            if self.weather_kind == "rain":
-                distress_chance += 0.12
-            elif self.weather_kind == "cloudy":
-                distress_chance += 0.04
+            distress_chance += self.weather_precipitation_factor() * 0.12
+            distress_chance += self.weather_mist_factor() * 0.04
+            distress_chance += self.weather_storm_factor() * 0.08
             if self.random.random() < distress_chance and not self.active_dynamic_events:
                 distress_pos = self.expedition_distress_pos(expedition)
                 self.spawn_dynamic_event(
@@ -2451,7 +2884,7 @@ class WorldMixin:
         region["boss_active"] = True
         self.spawn_floating_text(str(region["boss_blueprint"]["name"]).lower(), boss.pos, PALETTE["danger_soft"])
         self.set_event_message(f"{region['boss_blueprint']['name']} despertou em {region['name']}.")
-        self.audio.play_alert()
+        self.audio.play_alert(source_pos=boss.pos)
 
     def resolve_defeated_zone_bosses(self) -> None:
         for zombie in self.zombies:
@@ -2530,6 +2963,19 @@ class WorldMixin:
         pos, site_kind, uid, label = self.random.choice(core_sites)
         return Vector2(pos), site_kind, uid, label
 
+    def roadside_event_pos(self, *, side: str | None = None) -> Vector2:
+        """Escolhe um ponto aleatorio nas laterais do acampamento para encontros humanos."""
+        side = side or self.random.choice(("north", "south", "east", "west"))
+        margin = 118.0
+        lateral_jitter = self.random.uniform(-96, 96)
+        if side == "north":
+            return CAMP_CENTER + Vector2(lateral_jitter, -(self.camp_half_size + margin))
+        if side == "south":
+            return CAMP_CENTER + Vector2(lateral_jitter, self.camp_half_size + margin)
+        if side == "east":
+            return CAMP_CENTER + Vector2(self.camp_half_size + margin, lateral_jitter)
+        return CAMP_CENTER + Vector2(-(self.camp_half_size + margin), lateral_jitter)
+
     def dynamic_event_candidates(self) -> list[tuple[str, float, dict[str, object]]]:
         living = self.living_survivors()
         if not living:
@@ -2537,27 +2983,37 @@ class WorldMixin:
 
         candidates: list[tuple[str, float, dict[str, object]]] = []
         if self.spare_beds() > 0 and self.next_recruit_index < len(self.recruit_pool) and self.average_morale() > 48 and self.average_trust() > 42:
-            outsider_pos = CAMP_CENTER + Vector2(self.camp_half_size + 74, 0)
             profile = self.recruit_pool[self.next_recruit_index]
+            outsider_pos = self.roadside_event_pos()
             candidates.append(
                 (
                     "abrigo",
                     0.32 + self.camp_level * 0.05,
-                    {"pos": outsider_pos, "profile": profile},
+                    {
+                        "pos": outsider_pos,
+                        "profile": profile,
+                        "visitor": {
+                            "name": str(profile["name"]),
+                            "title": "forasteiro",
+                            "body": (144, 154, 132),
+                            "accent": (112, 124, 98),
+                            "prop": "bag",
+                        },
+                    },
                 )
             )
 
         disease_target = max(living, key=lambda survivor: survivor.exhaustion + (100 - survivor.health))
-        if (self.weather_kind == "rain" or self.herbs <= 1 or self.average_health() < 74) and not self.dynamic_event_for_survivor(disease_target):
+        if (self.weather_precipitation_factor() > 0.26 or self.weather_mist_factor() > 0.34 or self.herbs <= 1 or self.average_health() < 74) and not self.dynamic_event_for_survivor(disease_target):
             severity = clamp((disease_target.exhaustion - 40) / 40, 0.0, 1.0)
             candidates.append(("doenca", 0.34 + severity * 0.24, {"target": disease_target}))
 
-        if (self.weather_kind == "wind" or self.bonfire_stage() == "alta") and (self.buildings or self.wood + self.logs > 12):
+        if (self.weather_wind_factor() > 0.34 or self.weather_storm_factor() > 0.3 or self.bonfire_stage() == "alta") and (self.buildings or self.wood + self.logs > 12):
             fire_pos, site_kind, building_uid, site_label = self.choose_fire_site()
             candidates.append(
                 (
                     "incendio",
-                    0.26 + self.weather_strength * 0.24,
+                    0.26 + self.weather_wind_factor() * 0.16 + self.weather_storm_factor() * 0.22,
                     {"pos": fire_pos, "site_kind": site_kind, "building_uid": building_uid, "site_label": site_label},
                 )
             )
@@ -2589,12 +3045,17 @@ class WorldMixin:
         ]
         if faction_pool and self.day >= 2 and self.average_trust() > 26:
             faction_key = self.random.choice(faction_pool)
-            roadside_pos = CAMP_CENTER + Vector2(self.random.choice((-1, 1)) * (self.camp_half_size + 118), self.random.uniform(-90, 90))
+            roadside_pos = self.roadside_event_pos()
+            faction_visuals = {
+                "andarilhos": {"name": "andarilhos", "title": "familia cansada", "body": (158, 170, 126), "accent": (112, 124, 84), "prop": "bag"},
+                "ferro-velho": {"name": "ferro-velho", "title": "comerciante de sucata", "body": (146, 126, 104), "accent": (112, 98, 82), "prop": "crate"},
+                "vigias_da_estrada": {"name": "vigias", "title": "patrulha armada", "body": (126, 138, 154), "accent": (84, 96, 118), "prop": "pole"},
+            }
             candidates.append(
                 (
                     "faccao",
                     0.22 + self.camp_level * 0.04 + max(0.0, self.average_trust() - 40) * 0.002,
-                    {"faction": faction_key, "pos": roadside_pos},
+                    {"faction": faction_key, "pos": roadside_pos, "visitor": dict(faction_visuals[faction_key])},
                 )
             )
 
@@ -3078,14 +3539,14 @@ class WorldMixin:
             self.spawn_local_zombies(interest_point.pos, 2)
             self.screen_shake = max(self.screen_shake, 3.2)
             self.set_event_message("A sirene morta chiou e puxou dois zumbis da mata.")
-            self.audio.play_alert()
+            self.audio.play_alert(source_pos=interest_point.pos)
         else:
             self.add_resource_bundle({"food": 1})
             self.set_event_message("Algo util foi encontrado na exploracao.")
 
         self.spawn_floating_text(interest_point.label, interest_point.pos, PALETTE["accent_soft"])
         self.emit_embers(interest_point.pos, 4, smoky=True)
-        self.audio.play_interact()
+        self.audio.play_interact(source_pos=interest_point.pos)
 
     def spawn_local_zombies(self, center: Vector2, count: int, *, pressure: bool = False) -> None:
         for _ in range(count):
@@ -3266,92 +3727,42 @@ class WorldMixin:
         return self.random_resource_pos(min_distance, max_distance)
 
     def generate_tents(self) -> list[dict[str, Vector2 | float]]:
-        if self.camp_level == 0:
-            offsets = [
-                Vector2(-0.78, -0.5),
-                Vector2(0.76, -0.5),
-                Vector2(0.82, -0.06),
-                Vector2(0.74, 0.38),
-                Vector2(0.56, 0.72),
-                Vector2(-0.56, 0.72),
-                Vector2(-0.78, 0.36),
-                Vector2(-0.82, -0.04),
-            ]
-        else:
-            offsets = [
-                Vector2(-0.66, -0.58),
-                Vector2(-0.26, -0.6),
-                Vector2(0.18, -0.58),
-                Vector2(0.6, -0.54),
-                Vector2(0.68, -0.12),
-                Vector2(0.68, 0.28),
-                Vector2(0.56, 0.62),
-                Vector2(0.12, 0.66),
-                Vector2(-0.32, 0.64),
-                Vector2(-0.68, 0.56),
-                Vector2(-0.72, 0.12),
-                Vector2(-0.72, -0.28),
-                Vector2(-0.34, -0.08),
-                Vector2(0.2, -0.02),
-                Vector2(0.3, 0.3),
-                Vector2(-0.24, 0.24),
-            ]
-            edge_columns = (-0.72, -0.36, 0.0, 0.36, 0.72)
-            for ring in (0.82, 0.58):
-                for column in edge_columns:
-                    offsets.append(Vector2(column, -ring))
-                    offsets.append(Vector2(column, ring))
-                for row in (-0.42, 0.0, 0.42):
-                    offsets.append(Vector2(-ring, row))
-                    offsets.append(Vector2(ring, row))
-            deduped: list[Vector2] = []
-            for offset in offsets:
-                if any(existing.distance_to(offset) < 0.08 for existing in deduped):
-                    continue
-                deduped.append(offset)
-            offsets = deduped
-        tent_count = 8 + self.camp_level * 4
-        tents = []
-        protected_sites = [
-            Vector2(self.bonfire_pos),
-            Vector2(self.stockpile_pos),
-            Vector2(self.kitchen_pos),
-            Vector2(self.workshop_pos),
-            Vector2(self.radio_pos),
+        base_offsets = [
+            Vector2(-0.78, -0.5),
+            Vector2(0.76, -0.5),
+            Vector2(0.82, -0.06),
+            Vector2(0.74, 0.38),
+            Vector2(0.56, 0.72),
+            Vector2(-0.56, 0.72),
+            Vector2(-0.78, 0.36),
+            Vector2(-0.82, -0.04),
         ]
-        core_clearance = 92 if self.camp_level == 0 else 72
-        tent_spacing = 64 if self.camp_level == 0 else 56
-        inset = self.camp_half_size - 34
-        if len(offsets) < tent_count:
-            for extra_index in range(tent_count - len(offsets)):
-                angle = (extra_index / max(1, tent_count - len(offsets))) * math.tau
-                offsets.append(Vector2(math.cos(angle) * 0.84, math.sin(angle) * 0.84))
+        tents: list[dict[str, Vector2 | float]] = []
+        initial_half_size = 214
 
-        for offset in offsets[:tent_count]:
-            pos = CAMP_CENTER + Vector2(offset.x * self.camp_half_size, offset.y * self.camp_half_size)
-            for anchor in protected_sites:
-                direction = pos - anchor
-                distance = direction.length()
-                if 0 < distance < core_clearance:
-                    pos = anchor + direction.normalize() * core_clearance
-            for tent in tents:
-                other_pos = Vector2(tent["pos"])
-                direction = pos - other_pos
-                distance = direction.length()
-                if 0 < distance < tent_spacing:
-                    pos = other_pos + direction.normalize() * tent_spacing
-            pos.x = clamp(pos.x, CAMP_CENTER.x - inset, CAMP_CENTER.x + inset)
-            pos.y = clamp(pos.y, CAMP_CENTER.y - inset, CAMP_CENTER.y + inset)
-            facing = CAMP_CENTER - pos
-            angle = math.atan2(facing.y, facing.x) if facing.length_squared() > 0 else 0.0
-            tents.append(
-                {
-                    "pos": pos,
-                    "angle": angle,
-                    "scale": self.random.uniform(0.94, 1.14),
-                    "tone": self.random.uniform(0.0, 1.0),
-                }
-            )
+        if hasattr(self, "tents") and len(getattr(self, "tents", [])) >= len(base_offsets):
+            for tent in list(self.tents[: len(base_offsets)]):
+                tents.append(
+                    {
+                        "pos": Vector2(tent["pos"]),
+                        "angle": float(tent["angle"]),
+                        "scale": float(tent["scale"]),
+                        "tone": float(tent["tone"]),
+                    }
+                )
+        else:
+            for offset in base_offsets:
+                pos = CAMP_CENTER + Vector2(offset.x * initial_half_size, offset.y * initial_half_size)
+                facing = CAMP_CENTER - pos
+                angle = math.atan2(facing.y, facing.x) if facing.length_squared() > 0 else 0.0
+                tents.append(
+                    {
+                        "pos": pos,
+                        "angle": angle,
+                        "scale": self.random.uniform(0.94, 1.14),
+                        "tone": self.random.uniform(0.0, 1.0),
+                    }
+                )
         return tents
 
     def generate_trees(self) -> list[dict[str, object]]:
@@ -3462,6 +3873,60 @@ class WorldMixin:
             barricades.append(Barricade(math.pi, CAMP_CENTER + Vector2(-half, -offset), Vector2(0, -1), span=span, tier=tier, max_health=max_health, health=max_health))
         return barricades
 
+    def reflow_barricades_for_current_camp_size(self) -> None:
+        """Redistribui os segmentos existentes ao redor do novo tamanho da base.
+
+        A ideia aqui e preservar a quantidade atual de trechos e os upgrades de spikes,
+        aumentando o comprimento e o espacamento da linha defensiva quando a base cresce.
+        """
+        if not self.barricades:
+            self.barricades = self.generate_barricades()
+            return
+
+        half = self.camp_half_size + 24
+        side_map: dict[str, list[Barricade]] = {"top": [], "right": [], "bottom": [], "left": []}
+
+        for barricade in self.barricades:
+            angle = float(barricade.angle)
+            if abs(angle - (-math.pi / 2)) < 0.01:
+                side_map["top"].append(barricade)
+            elif abs(angle - 0.0) < 0.01:
+                side_map["right"].append(barricade)
+            elif abs(angle - (math.pi / 2)) < 0.01:
+                side_map["bottom"].append(barricade)
+            else:
+                side_map["left"].append(barricade)
+
+        side_map["top"].sort(key=lambda barricade: barricade.pos.x)
+        side_map["right"].sort(key=lambda barricade: barricade.pos.y)
+        side_map["bottom"].sort(key=lambda barricade: barricade.pos.x, reverse=True)
+        side_map["left"].sort(key=lambda barricade: barricade.pos.y, reverse=True)
+
+        for side, group in side_map.items():
+            if not group:
+                continue
+            spacing = (half * 2) / len(group)
+            span = spacing * 0.84
+            for index, barricade in enumerate(group):
+                offset = -half + spacing * (index + 0.5)
+                if side == "top":
+                    barricade.angle = -math.pi / 2
+                    barricade.tangent = Vector2(1, 0)
+                    barricade.pos = CAMP_CENTER + Vector2(offset, -half)
+                elif side == "right":
+                    barricade.angle = 0.0
+                    barricade.tangent = Vector2(0, 1)
+                    barricade.pos = CAMP_CENTER + Vector2(half, offset)
+                elif side == "bottom":
+                    barricade.angle = math.pi / 2
+                    barricade.tangent = Vector2(-1, 0)
+                    barricade.pos = CAMP_CENTER + Vector2(-offset, half)
+                else:
+                    barricade.angle = math.pi
+                    barricade.tangent = Vector2(0, -1)
+                    barricade.pos = CAMP_CENTER + Vector2(-half, -offset)
+                barricade.span = span
+
     def generate_survivors(self) -> list[Survivor]:
         survivors = []
         initial_population = 6
@@ -3505,10 +3970,7 @@ class WorldMixin:
             self.paint_feature(feature_surface, feature)
         surface.blit(feature_surface, (0, 0))
 
-        outer_rect = self.camp_rect(96)
-        inner_rect = self.camp_rect(26)
-        pygame.draw.rect(surface, PALETTE["clearing"], outer_rect, border_radius=42)
-        pygame.draw.rect(surface, PALETTE["forest_floor_light"], inner_rect, border_radius=28)
+        self.paint_camp_ground(surface)
 
         path_surface = pygame.Surface((WORLD_WIDTH, WORLD_HEIGHT), pygame.SRCALPHA)
         for index, path in enumerate(self.path_network):
@@ -3663,9 +4125,10 @@ class WorldMixin:
         health_factor = 1.0 - clamp(self.player.health / self.player.max_health, 0.0, 1.0)
         morale_factor = 1.0 - clamp(self.average_morale() / 100, 0.0, 1.0)
         insanity_factor = clamp(self.average_insanity() / 100, 0.0, 1.0)
-        weather_kind = getattr(self, "weather_kind", "clear")
-        weather_scale = 0.08 if weather_kind == "rain" else (0.05 if weather_kind == "cloudy" else 0.04)
-        weather_factor = getattr(self, "weather_strength", 0.0) * weather_scale
+        weather_factor = self.weather_precipitation_factor() * 0.08
+        weather_factor += self.weather_mist_factor() * 0.05
+        weather_factor += self.weather_wind_factor() * 0.04
+        weather_factor += self.weather_storm_factor() * 0.08
         base = 0.18 if self.is_night else 0.04
         tension = (
             base
@@ -3879,9 +4342,18 @@ class WorldMixin:
         }
 
     def begin_night(self) -> None:
-        self.horde_active = self.random.random() < min(0.1 + self.day * 0.025, 0.42)
-        self.spawn_budget = 4 + self.day * 2 + (4 if self.horde_active else 0)
-        self.spawn_timer = 1.8
+        # As duas primeiras noites seguram a mao do jogador para ele destravar a base.
+        if self.day <= 2:
+            horde_chance = 0.0
+        else:
+            horde_chance = min(0.05 + (self.day - 2) * 0.025, 0.38)
+        self.horde_active = self.random.random() < horde_chance
+        if self.day <= 2:
+            self.spawn_budget = 2 + self.day + (2 if self.horde_active else 0)
+            self.spawn_timer = 2.45
+        else:
+            self.spawn_budget = 3 + self.day + (3 if self.horde_active else 0)
+            self.spawn_timer = 2.05
         self.bonfire_ember_bed = clamp(self.bonfire_ember_bed + 8, 0, 100)
         self.emit_embers(self.bonfire_pos, 20)
         self.spawn_floating_text("a floresta acordou", self.bonfire_pos, PALETTE["danger_soft"])

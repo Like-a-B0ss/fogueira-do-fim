@@ -60,9 +60,8 @@ Cada turno do jogador envolve decidir onde gastar tempo e recurso escasso.
 O acampamento comeca pequeno e se expande em niveis. A base ganha:
 
 - mais espaco
-- mais barracas
-- mais linhas de barricada
 - edificios especializados
+- mais area util para circular, construir e respirar melhor dentro da clareira
 
 ### 4.4 Mundo Hostil e Procedural
 
@@ -113,7 +112,7 @@ O jogo comeca com:
 
 O jogador expande:
 
-- barracas
+- barracas construidas manualmente, se quiser abrir mais leitos
 - serraria
 - cozinha
 - enfermaria
@@ -187,6 +186,8 @@ O jogo abre para:
 - `F9`: carregar
 - `Esc`: sair / voltar / abrir confirmacao
 
+O jogo prioriza o alvo sob o mouse para a interacao quando ele estiver ao alcance, evitando confusao em areas apertadas da base.
+
 ## 9. Focos da Comunidade
 
 Os focos alteram a prioridade da IA dos moradores:
@@ -217,6 +218,8 @@ Os focos funcionam como prioridade, nao como ordem absoluta. Necessidades critic
 - serraria -> `tabuas` em escala
 - insumos + combustivel -> `refeicoes`
 - ervas + sucata -> `remedios`
+
+O lider tambem pode operar estruturas chave manualmente para acelerar a base quando a IA nao da conta.
 
 ### 10.3 Filosofia
 
@@ -250,13 +253,25 @@ Isso ajuda a criar gargalo, planejamento e progressao.
 - `Cozinha`: produz refeicoes
 - `Enfermaria`: trata e fabrica remedios
 
-### 11.3 Fluxo de Build
+### 11.3 Uso Direto pelo Lider
+
+Estruturas que o lider pode usar manualmente:
+
+- `Oficina`: corta algumas tabuas antes da serraria
+- `Serraria`: processa toras em tabuas
+- `Cozinha`: monta refeicoes
+- `Horta`: colhe um pequeno lote
+- `Anexo`: vira reparo rapido na linha defensiva
+- `Torre`: dispara contra zumbis proximos
+- `Enfermaria`: trata ferimentos ou prepara remedios
+
+### 11.4 Fluxo de Build
 
 - jogador abre menu com `B`
 - escolhe estrutura
 - posiciona no espaco valido da base
 
-### 11.4 Pedidos de Obra dos Moradores
+### 11.5 Pedidos de Obra dos Moradores
 
 Moradores agora podem:
 
@@ -283,6 +298,13 @@ Elementos estruturais:
 - barracas
 - estoque
 - palicada/barricadas
+
+Regras importantes atuais:
+
+- as barracas predefinidas ficam fixas e nao se movem com a expansao
+- expandir a base nao gera barracas automaticamente
+- a linha defensiva preserva upgrades de spikes quando a base cresce
+- a expansao reposiciona a defesa para o novo tamanho sem resetar o progresso
 
 ## 13. Fogueira
 
@@ -346,7 +368,6 @@ Os moradores podem:
 - dormir
 - socializar
 - defender o acampamento
-- pedir construcoes
 - sugerir necessidades da base pelo chat
 
 ## 15. Sistema Social
@@ -405,6 +426,8 @@ Cada evento tem:
 - alvo
 - consequencia de sucesso ou falha
 
+Eventos de `abrigo` e `faccao` agora tambem colocam um visitante fisico no mapa, surgindo em um ponto aleatorio nas laterais do acampamento.
+
 ## 17. Faccoes
 
 Faccoes atuais:
@@ -424,6 +447,12 @@ O jogador responde com:
 
 - `E`: linha mais humana
 - `Q`: linha mais dura
+
+Visitantes de faccao e abrigo possuem:
+
+- presenca visual no mundo
+- animacao leve de espera
+- fala curta em balao quando o lider se aproxima
 
 ## 18. Combate
 
@@ -543,6 +572,12 @@ Mostra:
 - historico social/chat
 - modo compacto e modo completo para aliviar a tela durante exploracao e combate
 
+Tambem ha:
+
+- prompts contextuais que priorizam o alvo sob o mouse
+- painel do chefe com vida, folego e contexto de descanso
+- confirmacao de saida com salvar, sair sem salvar ou cancelar
+
 ### 21.2 Tela Inicial
 
 Possui:
@@ -562,6 +597,15 @@ O painel dos moradores agora tem:
 - scroll
 - cards compactos
 - clique para expandir detalhes
+
+### 21.4 Apresentacao dos Eventos
+
+Eventos humanos importantes aparecem no mundo com:
+
+- visitante visivel
+- anel de destaque
+- texto contextual ao aproximar
+- escolha `E` ou `Q` quando aplicavel
 
 ## 22. Audio
 
@@ -616,6 +660,14 @@ Arquitetura principal:
 - `game/audio.py`: audio procedural
 - `game/input.py`: entrada
 - `game/models.py`: dataclasses
+
+Detalhes tecnicos atuais:
+
+- Python 3 + `pygame`
+- renderizacao top-down sem assets externos obrigatorios
+- audio sintetizado em runtime
+- save/load manual por arquivo
+- estrutura modular com helpers de HUD, UI, dialogo e sistema social
 
 Modulos auxiliares:
 

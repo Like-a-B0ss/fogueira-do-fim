@@ -15,14 +15,19 @@ from .camera import CameraRig
 from .config import (
     CAMP_CENTER,
     FPS,
+    DISPLAY_SETTINGS,
+    GAMEPLAY_SETTINGS,
     MINUTES_PER_SECOND,
     PALETTE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     START_TIME_MINUTES,
+    UI_SETTINGS,
+    WEATHER_SETTINGS,
     WORLD_HEIGHT,
     WORLD_WIDTH,
     clamp,
+    lerp,
     load_font,
 )
 from .input import InputState, InputSystem
@@ -46,8 +51,19 @@ class Game(WorldMixin, RenderMixin):
         random.seed(seed)
         pygame.init()
         pygame.display.set_caption("Fogueira do Fim")
-        flags = (pygame.SCALED | pygame.FULLSCREEN) if not smoke_test else 0
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
+        fullscreen = bool(DISPLAY_SETTINGS.get("fullscreen", True))
+        if fullscreen and not smoke_test:
+            display_info = pygame.display.Info()
+            display_size = (
+                max(1, int(display_info.current_w or SCREEN_WIDTH)),
+                max(1, int(display_info.current_h or SCREEN_HEIGHT)),
+            )
+            flags = pygame.FULLSCREEN
+        else:
+            display_size = (SCREEN_WIDTH, SCREEN_HEIGHT)
+            flags = 0
+        self.screen = pygame.display.set_mode(display_size, flags)
+        self.sync_viewport_constants(*self.screen.get_size())
         self.clock = pygame.time.Clock()
         self.running = True
         self.smoke_test = smoke_test
@@ -62,12 +78,8 @@ class Game(WorldMixin, RenderMixin):
         self.small_font = load_font(15)
         self.ui_small_font = load_font(16)
         self.runtime_settings: dict[str, float] = {
-            "master_volume": 0.86,
-            "ambience_volume": 0.92,
-            "music_volume": 0.84,
-            "screen_shake_scale": 1.0,
-            "fog_strength": 0.95,
-            "ui_contrast": 1.0,
+            key: float(value)
+            for key, value in dict(UI_SETTINGS.get("runtime_defaults", {})).items()
         }
         self.title_actions = ()
         self.title_action_index = 0
@@ -75,7 +87,8 @@ class Game(WorldMixin, RenderMixin):
         self.title_settings_open = False
         self.tips_index = 0
         self.title_bg_phase = 0.0
-        self.title_bg_spawn_timer = 8.0
+        spawn_range = UI_SETTINGS.get("title_background_spawn_range", [7.0, 12.0])
+        self.title_bg_spawn_timer = float(spawn_range[0])
         self.bark_timer = 3.2
         self.exit_prompt_open = False
         self.exit_prompt_options = ("Salvar e Sair", "Sair sem Salvar", "Cancelar")
@@ -87,13 +100,15 @@ class Game(WorldMixin, RenderMixin):
         self.chat_messages: list[dict[str, object]] = []
         self.chat_scroll = 0.0
         self.dialog_survivor_name: str | None = None
-        self.title_setting_entries = (
-            ("master_volume", "Volume Geral", 0.05, 0.0, 1.0),
-            ("ambience_volume", "Ambiencia", 0.05, 0.0, 1.0),
-            ("music_volume", "Musica", 0.05, 0.0, 1.0),
-            ("screen_shake_scale", "Tremor de Tela", 0.1, 0.0, 1.4),
-            ("fog_strength", "Forca da Neblina", 0.1, 0.35, 1.25),
-            ("ui_contrast", "Contraste da HUD", 0.1, 0.7, 1.4),
+        self.title_setting_entries = tuple(
+            (
+                key,
+                str(entry["label"]),
+                float(entry["step"]),
+                float(entry["min"]),
+                float(entry["max"]),
+            )
+            for key, entry in dict(UI_SETTINGS.get("runtime_ranges", {})).items()
         )
         self.audio.apply_settings(self.runtime_settings)
         self.refresh_title_actions()
@@ -105,30 +120,34 @@ class Game(WorldMixin, RenderMixin):
         self.time_minutes = START_TIME_MINUTES
         self.previous_night = self.is_night
         self.focus_mode = "balanced"
-        self.logs = 7
-        self.wood = 6
-        self.food = 6
-        self.herbs = 1
-        self.scrap = 4
-        self.meals = 1
-        self.medicine = 0
-        self.camp_level = 0
-        self.max_camp_level = 5
-        self.bonfire_heat = 58.0
-        self.bonfire_ember_bed = 46.0
+        # Estoque inicial mais folgado para o early game nao travar antes da primeira noite.
+        starting_resources = dict(GAMEPLAY_SETTINGS.get("starting_resources", {}))
+        self.logs = int(starting_resources.get("logs", 9))
+        self.wood = int(starting_resources.get("wood", 8))
+        self.food = int(starting_resources.get("food", 8))
+        self.herbs = int(starting_resources.get("herbs", 2))
+        self.scrap = int(starting_resources.get("scrap", 5))
+        self.meals = int(starting_resources.get("meals", 2))
+        self.medicine = int(starting_resources.get("medicine", 1))
+        self.camp_level = int(GAMEPLAY_SETTINGS.get("camp_level_start", 0))
+        self.max_camp_level = int(GAMEPLAY_SETTINGS.get("max_camp_level", 5))
+        bonfire_start = dict(GAMEPLAY_SETTINGS.get("bonfire_start", {}))
+        self.bonfire_heat = float(bonfire_start.get("heat", 64.0))
+        self.bonfire_ember_bed = float(bonfire_start.get("ember_bed", 52.0))
         self.event_message = "O campo desperta no meio da mata."
         self.event_timer = 8.0
         self.morale_flash = 0.0
         self.screen_shake = 0.0
         self.social_timer = 2.4
-        self.dynamic_event_cooldown = 18.0
+        gameplay_timers = dict(GAMEPLAY_SETTINGS.get("timers", {}))
+        self.dynamic_event_cooldown = float(gameplay_timers.get("dynamic_event_cooldown", 28.0))
         self.next_dynamic_event_uid = 1
         self.active_dynamic_events: list[DynamicEvent] = []
         self.active_expedition: dict[str, object] | None = None
-        self.spawn_timer = 4.0
+        self.spawn_timer = float(gameplay_timers.get("spawn_timer", 4.0))
         self.spawn_budget = 0
         self.horde_active = False
-        self.day_spawn_timer = 12.0
+        self.day_spawn_timer = float(gameplay_timers.get("day_spawn_timer", 18.0))
         self.floating_texts: list[FloatingText] = []
         self.embers: list[Ember] = []
         self.fog_motes: list[FogMote] = []
@@ -147,7 +166,15 @@ class Game(WorldMixin, RenderMixin):
         self.layout_camp_core()
         self.weather_kind = "clear"
         self.weather_strength = 0.0
+        self.weather_target_kind = "clear"
+        self.weather_target_strength = 0.0
         self.weather_timer = 0.0
+        self.weather_front_progress = 1.0
+        self.weather_front_duration = 0.0
+        self.weather_gust_phase = self.random.uniform(0.0, math.tau)
+        self.weather_gust_strength = 0.0
+        self.weather_flash = 0.0
+        self.weather_flash_timer = 0.0
         self.weather_label = "ceu limpo"
         self.faction_standings = self.create_faction_standings()
         self.build_recipes = self.create_build_recipes()
@@ -171,6 +198,10 @@ class Game(WorldMixin, RenderMixin):
 
         self.terrain_surface = self.build_terrain_surface()
         self.fog_of_war = self.create_fog_of_war_surface()
+        self.map_fog_overlay_surface: pygame.Surface | None = None
+        self.map_reveal_cache: dict[int, pygame.Surface] = {}
+        # O mundo explora chunks procedurais para longe da clareira, entao a
+        # camera do gameplay precisa continuar solta para seguir o jogador.
         self.camera = CameraRig(SCREEN_WIDTH, SCREEN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT, bounded=False)
         self.current_biome_label = "Clareira do Campo"
         self.current_biome_key = "camp"
@@ -179,6 +210,7 @@ class Game(WorldMixin, RenderMixin):
         self.current_zone_boss_label = "centro seguro"
         self.roll_weather(initial=True)
         self.ensure_endless_world(self.player.pos)
+        self.maintain_unlimited_resources()
 
         for _ in range(26):
             self.fog_motes.append(
@@ -194,6 +226,26 @@ class Game(WorldMixin, RenderMixin):
             )
 
         self.zombies: list[Zombie] = []
+
+    def sync_viewport_constants(self, width: int, height: int) -> None:
+        """Sincroniza os modulos que usam largura/altura da viewport em tempo de execucao."""
+        from . import config as config_module
+        from . import hud_rendering_helpers as hud_module
+        from . import rendering as rendering_module
+        from . import ui_helpers as ui_module
+
+        globals()["SCREEN_WIDTH"] = int(width)
+        globals()["SCREEN_HEIGHT"] = int(height)
+        config_module.SCREEN_WIDTH = int(width)
+        config_module.SCREEN_HEIGHT = int(height)
+        rendering_module.SCREEN_WIDTH = int(width)
+        rendering_module.SCREEN_HEIGHT = int(height)
+        ui_module.SCREEN_WIDTH = int(width)
+        ui_module.SCREEN_HEIGHT = int(height)
+        hud_module.SCREEN_WIDTH = int(width)
+        hud_module.SCREEN_HEIGHT = int(height)
+        self.map_fog_overlay_surface = None
+        self.map_reveal_cache = {}
 
     @property
     def state(self) -> str:
@@ -244,13 +296,13 @@ class Game(WorldMixin, RenderMixin):
         self.audio.play_ui("back")
 
     def exit_prompt_layout(self) -> dict[str, object]:
-        panel = pygame.Rect(0, 0, 520, 252)
+        panel = pygame.Rect(0, 0, 560, 332)
         panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
         buttons: list[pygame.Rect] = []
-        row_y = panel.y + 132
+        row_y = panel.y + 146
         for _ in self.exit_prompt_options:
-            buttons.append(pygame.Rect(panel.x + 26, row_y, panel.width - 52, 38))
-            row_y += 48
+            buttons.append(pygame.Rect(panel.x + 28, row_y, panel.width - 56, 40))
+            row_y += 54
         return {"panel": panel, "buttons": buttons}
 
     def confirm_exit_prompt(self, choice: str | None = None) -> None:
@@ -435,6 +487,18 @@ class Game(WorldMixin, RenderMixin):
             return Vector2(float(value[0]), float(value[1]))
         return Vector2(fallback) if fallback is not None else Vector2()
 
+    def make_json_safe(self, value: object) -> object:
+        """Converte estruturas do jogo para tipos seguros de serializacao em JSON."""
+        if isinstance(value, Vector2):
+            return self.vec_to_list(value)
+        if isinstance(value, dict):
+            return {str(key): self.make_json_safe(item) for key, item in value.items()}
+        if isinstance(value, tuple):
+            return [self.make_json_safe(item) for item in value]
+        if isinstance(value, list):
+            return [self.make_json_safe(item) for item in value]
+        return value
+
     def serialize_save_data(self) -> dict[str, object]:
         sleep_slot = None
         if self.player_sleep_slot:
@@ -448,7 +512,7 @@ class Game(WorldMixin, RenderMixin):
                 key: (self.vec_to_list(value) if isinstance(value, Vector2) else value)
                 for key, value in self.active_expedition.items()
             }
-        return {
+        return self.make_json_safe({
             "version": 1,
             "seed": self.seed,
             "runtime_settings": dict(self.runtime_settings),
@@ -488,7 +552,13 @@ class Game(WorldMixin, RenderMixin):
             "player_sleep_elapsed": self.player_sleep_elapsed,
             "weather_kind": self.weather_kind,
             "weather_strength": self.weather_strength,
+            "weather_target_kind": self.weather_target_kind,
+            "weather_target_strength": self.weather_target_strength,
             "weather_timer": self.weather_timer,
+            "weather_front_progress": self.weather_front_progress,
+            "weather_front_duration": self.weather_front_duration,
+            "weather_gust_phase": self.weather_gust_phase,
+            "weather_gust_strength": self.weather_gust_strength,
             "weather_label": self.weather_label,
             "faction_standings": dict(self.faction_standings),
             "named_regions": {
@@ -682,7 +752,11 @@ class Game(WorldMixin, RenderMixin):
                 for event in self.active_dynamic_events
             ],
             "active_expedition": active_expedition,
-        }
+            "fog_reveals": [
+                {"pos": self.vec_to_list(center), "radius": radius}
+                for center, radius in getattr(self, "fog_reveals", [])
+            ],
+        })
 
     def save_game(self, *, auto: bool = False) -> tuple[bool, str]:
         if self.smoke_test:
@@ -690,7 +764,6 @@ class Game(WorldMixin, RenderMixin):
         try:
             save_data = self.serialize_save_data()
             SAVE_FILE.write_text(json.dumps(save_data, ensure_ascii=True, separators=(",", ":")), encoding="utf-8")
-            pygame.image.save(self.fog_of_war, str(SAVE_FOG_FILE))
         except (OSError, TypeError, ValueError, pygame.error):
             return False, "Falha ao gravar o save."
         self.refresh_title_actions()
@@ -740,7 +813,15 @@ class Game(WorldMixin, RenderMixin):
         self.player_sleep_elapsed = float(data.get("player_sleep_elapsed", 0.0))
         self.weather_kind = str(data.get("weather_kind", self.weather_kind))
         self.weather_strength = float(data.get("weather_strength", self.weather_strength))
+        self.weather_target_kind = str(data.get("weather_target_kind", self.weather_kind))
+        self.weather_target_strength = float(data.get("weather_target_strength", self.weather_strength))
         self.weather_timer = float(data.get("weather_timer", self.weather_timer))
+        self.weather_front_progress = float(data.get("weather_front_progress", 1.0))
+        self.weather_front_duration = float(data.get("weather_front_duration", 0.0))
+        self.weather_gust_phase = float(data.get("weather_gust_phase", self.weather_gust_phase))
+        self.weather_gust_strength = float(data.get("weather_gust_strength", 0.0))
+        self.weather_flash = 0.0
+        self.weather_flash_timer = 0.0
         self.weather_label = str(data.get("weather_label", self.weather_label))
         self.faction_standings = {str(key): float(value) for key, value in dict(data.get("faction_standings", {})).items()}
 
@@ -949,8 +1030,17 @@ class Game(WorldMixin, RenderMixin):
 
         self.layout_camp_core()
         self.terrain_surface = self.build_terrain_surface()
-        if SAVE_FOG_FILE.exists():
-            self.fog_of_war = pygame.image.load(str(SAVE_FOG_FILE)).convert_alpha()
+        self.create_fog_of_war_surface()
+        loaded_reveals = list(data.get("fog_reveals", []))
+        if loaded_reveals:
+            self.fog_reveals = []
+            self.fog_reveal_keys = set()
+            for item in loaded_reveals:
+                if not isinstance(item, dict):
+                    continue
+                center = self.list_to_vec(item.get("pos"), Vector2())
+                radius = float(item.get("radius", 146.0))
+                self.record_fog_reveal(center, radius)
         self.refresh_barricade_strength()
         self.prune_build_requests()
         self.assign_building_specialists()
@@ -1143,51 +1233,107 @@ class Game(WorldMixin, RenderMixin):
             self.set_event_message(message, duration=4.8)
             self.spawn_floating_text("acordado", self.player.pos, PALETTE["accent_soft"])
 
+    def weather_strength_range(self, kind: str) -> tuple[float, float]:
+        ranges = dict(WEATHER_SETTINGS.get("strength_ranges", {}))
+        selected = ranges.get(kind, [0.2, 0.6])
+        return float(selected[0]), float(selected[1])
+
+    def weather_duration_range(self, kind: str) -> tuple[float, float]:
+        ranges = dict(WEATHER_SETTINGS.get("duration_ranges", {}))
+        selected = ranges.get(kind, [24.0, 40.0])
+        return float(selected[0]), float(selected[1])
+
+    def weather_display_name(self, kind: str, strength: float) -> str:
+        strength = clamp(float(strength), 0.0, 1.0)
+        if kind == "clear":
+            return "ceu aberto" if strength < 0.28 else "claridade limpa"
+        if kind == "cloudy":
+            return "ceu nublado" if strength < 0.62 else "nuvens baixas"
+        if kind == "wind":
+            return "vento nas copas" if strength < 0.68 else "rajadas frias"
+        if kind == "rain":
+            return "chuva fina" if strength < 0.62 else "chuva fechada"
+        if kind == "mist":
+            return "bruma rasteira" if strength < 0.7 else "neblina densa"
+        if kind == "storm":
+            return "tempestade ao longe" if strength < 0.76 else "tempestade pesada"
+        return "tempo instavel"
+
+    def weather_transition_options(self, previous_kind: str) -> tuple[tuple[str, ...], tuple[float, ...]]:
+        table_key = "transition_weights_early" if self.day <= 2 else "transition_weights_late"
+        tables = dict(WEATHER_SETTINGS.get(table_key, {}))
+        mapping = dict(tables.get(previous_kind, tables.get("clear", {"clear": 1.0})))
+        return tuple(mapping.keys()), tuple(float(weight) for weight in mapping.values())
+
     def roll_weather(self, *, initial: bool = False) -> None:
-        previous_kind = self.weather_kind
-        options = ("clear", "cloudy", "wind", "rain")
-        weights = (0.28, 0.32, 0.24, 0.16) if self.day <= 2 else (0.22, 0.34, 0.24, 0.2)
-        if not initial and self.random.random() < 0.34:
+        previous_kind = self.weather_target_kind if not initial else self.weather_kind
+        options, weights = self.weather_transition_options(previous_kind)
+        repeat_chance = float(WEATHER_SETTINGS.get("repeat_same_weather_chance", 0.24))
+        if not initial and self.random.random() < repeat_chance:
             next_kind = previous_kind
         else:
             next_kind = self.random.choices(options, weights=weights, k=1)[0]
 
-        self.weather_kind = next_kind
-        if next_kind == "clear":
-            self.weather_strength = self.random.uniform(0.18, 0.58)
-            self.weather_timer = self.random.uniform(30.0, 48.0)
-            self.weather_label = "ceu limpo"
-        elif next_kind == "cloudy":
-            self.weather_strength = self.random.uniform(0.28, 0.88)
-            self.weather_timer = self.random.uniform(28.0, 46.0)
-            self.weather_label = "ceu nublado"
-        elif next_kind == "wind":
-            self.weather_strength = self.random.uniform(0.32, 0.86)
-            self.weather_timer = self.random.uniform(26.0, 44.0)
-            self.weather_label = "vento nas copas"
-        else:
-            self.weather_strength = self.random.uniform(0.38, 0.92)
-            self.weather_timer = self.random.uniform(24.0, 40.0)
-            self.weather_label = "chuva fina"
+        min_strength, max_strength = self.weather_strength_range(next_kind)
+        next_strength = self.random.uniform(min_strength, max_strength)
+        duration_low, duration_high = self.weather_duration_range(next_kind)
+        self.weather_timer = self.random.uniform(duration_low, duration_high)
 
         if initial:
+            self.weather_kind = next_kind
+            self.weather_strength = next_strength
+            self.weather_target_kind = next_kind
+            self.weather_target_strength = next_strength
+            self.weather_front_progress = 1.0
+            self.weather_front_duration = 0.0
+            self.weather_label = self.weather_display_name(next_kind, next_strength)
             return
 
-        if next_kind != previous_kind:
-            message = {
-                "clear": "As nuvens abriram e a mata voltou a respirar.",
-                "cloudy": "O ceu fechou e a floresta entrou num cinza pesado.",
-                "wind": "O vento virou e as copas comecaram a gemer.",
-                "rain": "Uma chuva fina caiu sobre a clareira.",
-            }[next_kind]
-            self.set_event_message(message, duration=5.8)
+        self.weather_target_kind = next_kind
+        self.weather_target_strength = next_strength
+        self.weather_front_progress = 0.0
+        transition_range = WEATHER_SETTINGS.get("transition_duration_range", [10.0, 18.0])
+        self.weather_front_duration = self.random.uniform(float(transition_range[0]), float(transition_range[1]))
+        if next_kind == previous_kind:
+            self.weather_front_duration *= float(WEATHER_SETTINGS.get("repeat_front_duration_scale", 0.6))
+            self.weather_timer *= float(WEATHER_SETTINGS.get("repeat_timer_scale", 0.84))
         else:
-            self.weather_timer *= 0.82
+            message = str(dict(WEATHER_SETTINGS.get("messages", {})).get(next_kind, "O tempo mudou sobre a clareira."))
+            self.set_event_message(message, duration=5.8)
 
     def update_weather(self, dt: float) -> None:
         self.weather_timer -= dt
         if self.weather_timer <= 0:
             self.roll_weather()
+
+        if self.weather_front_progress < 1.0:
+            self.weather_front_progress = clamp(
+                self.weather_front_progress + dt / max(0.1, self.weather_front_duration),
+                0.0,
+                1.0,
+            )
+            if self.weather_front_progress >= 1.0:
+                self.weather_kind = self.weather_target_kind
+                self.weather_strength = self.weather_target_strength
+                self.weather_front_duration = 0.0
+
+        self.weather_gust_phase += dt * (0.24 + self.weather_wind_factor() * 0.92)
+        gust_wave = 0.5 + 0.5 * math.sin(self.weather_gust_phase)
+        self.weather_gust_strength = clamp(self.weather_wind_factor() * (0.58 + gust_wave * 0.52), 0.0, 1.0)
+
+        flash_settings = dict(WEATHER_SETTINGS.get("flash", {}))
+        self.weather_flash = max(0.0, self.weather_flash - dt * float(flash_settings.get("decay_per_second", 1.75)))
+        self.weather_flash_timer -= dt
+        if self.weather_storm_factor() > float(flash_settings.get("storm_threshold", 0.46)) and self.weather_flash_timer <= 0:
+            intensity_range = flash_settings.get("intensity_range", [0.16, 0.34])
+            interval_range = flash_settings.get("interval_range", [4.5, 8.6])
+            self.weather_flash = self.random.uniform(float(intensity_range[0]), float(intensity_range[1])) * self.weather_storm_factor()
+            self.weather_flash_timer = self.random.uniform(float(interval_range[0]), float(interval_range[1])) / max(0.32, self.weather_storm_factor())
+
+        blend = self.weather_transition_factor()
+        shown_kind = self.weather_target_kind if blend > 0.55 else self.weather_kind
+        shown_strength = lerp(self.weather_strength, self.weather_target_strength, blend)
+        self.weather_label = self.weather_display_name(shown_kind, shown_strength)
 
     def handle_events(self) -> None:
         self.input_state = self.input.poll()
@@ -1256,6 +1402,8 @@ class Game(WorldMixin, RenderMixin):
                 self.audio.play_ui("focus")
             else:
                 self.audio.play_alert()
+
+        self.audio.set_listener_position(self.player.pos)
 
         if self.player_sleeping:
             if (
@@ -1346,6 +1494,7 @@ class Game(WorldMixin, RenderMixin):
 
         sim_scale = 7.0 if self.player_sleeping else 1.0
         sim_dt = dt * sim_scale
+        self.maintain_unlimited_resources()
         self.time_minutes = (self.time_minutes + sim_dt * MINUTES_PER_SECOND) % (24 * 60)
         now_night = self.is_night
         if now_night and not self.previous_night:
@@ -1364,7 +1513,6 @@ class Game(WorldMixin, RenderMixin):
         self.ensure_endless_world(self.player.pos)
         self.update_player_biome()
         self.ensure_zone_boss_near_player()
-        self.reveal_world_around_player()
         self.prune_build_requests()
         self.assign_building_specialists()
         self.update_dynamic_events(sim_dt)
@@ -1377,11 +1525,13 @@ class Game(WorldMixin, RenderMixin):
         for survivor in self.survivors:
             survivor.update(self, sim_dt)
             self.resolve_actor_camp_collision(survivor)
+        self.reveal_world_around_player()
         self.update_social_dynamics(sim_dt)
         for zombie in self.zombies:
             zombie.update(self, sim_dt)
 
         self.normalize_stockpile()
+        self.maintain_unlimited_resources()
         self.resolve_defeated_zone_bosses()
         self.zombies = [zombie for zombie in self.zombies if zombie.is_alive()]
         for floating in list(self.floating_texts):
@@ -1400,19 +1550,26 @@ class Game(WorldMixin, RenderMixin):
             self.spawn_timer -= sim_dt
             if self.spawn_budget > 0 and self.spawn_timer <= 0:
                 self.spawn_night_zombie()
-                self.spawn_timer = max(0.95 if self.horde_active else 1.2, (2.7 if self.horde_active else 3.5) - self.day * 0.06)
+                if self.horde_active:
+                    base_interval = 3.25 if self.day <= 2 else 2.95
+                    min_interval = 1.3
+                else:
+                    base_interval = 4.4 if self.day <= 2 else 3.7
+                    min_interval = 1.55
+                self.spawn_timer = max(min_interval, base_interval - self.day * 0.06)
         else:
             self.day_spawn_timer -= sim_dt
             if (
                 self.day_spawn_timer <= 0
+                and self.day >= 2
                 and self.player.pos.distance_to(CAMP_CENTER) > self.camp_clearance_radius() + 220
                 and len(self.zombies) < 12
-                and self.random.random() < 0.42
+                and self.random.random() < (0.22 if self.day <= 3 else 0.34)
             ):
                 self.spawn_forest_ambient_zombie()
-                self.day_spawn_timer = self.random.uniform(14.0, 24.0)
+                self.day_spawn_timer = self.random.uniform(16.0, 26.0)
             elif self.day_spawn_timer <= 0:
-                self.day_spawn_timer = self.random.uniform(12.0, 18.0)
+                self.day_spawn_timer = self.random.uniform(14.0, 22.0)
 
         if self.player_sleeping:
             self.player_sleep_elapsed += sim_dt
@@ -1468,7 +1625,8 @@ class Game(WorldMixin, RenderMixin):
         if self.title_bg_spawn_timer <= 0:
             if len(self.zombies) < 5 and self.random.random() < 0.72:
                 self.spawn_forest_ambient_zombie()
-            self.title_bg_spawn_timer = self.random.uniform(7.0, 12.0)
+            spawn_range = UI_SETTINGS.get("title_background_spawn_range", [7.0, 12.0])
+            self.title_bg_spawn_timer = self.random.uniform(float(spawn_range[0]), float(spawn_range[1]))
 
         orbit = CAMP_CENTER + Vector2(
             math.cos(self.title_bg_phase * 0.18) * 170,

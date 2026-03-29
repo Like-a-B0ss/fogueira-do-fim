@@ -75,7 +75,7 @@ def society_panel_layout(game) -> dict[str, pygame.Rect]:
 
 def society_card_height(game, survivor) -> int:
     selected = getattr(game, "society_selected_survivor_name", None) == getattr(survivor, "name", None)
-    return 152 if selected else 72
+    return 184 if selected else 72
 
 
 def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
