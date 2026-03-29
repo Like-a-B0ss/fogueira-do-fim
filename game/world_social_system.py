@@ -45,6 +45,142 @@ def impact_burst(
         game.screen_shake = max(game.screen_shake, shake)
 
 
+def remember_social_event(
+    _game,
+    survivor,
+    text: str,
+    color: tuple[int, int, int],
+    *,
+    topic: str = "general",
+    impact: float = 0.0,
+    duration: float = 120.0,
+) -> None:
+    memory = {
+        "text": str(text),
+        "color": tuple(color),
+        "topic": str(topic),
+        "impact": float(impact),
+        "timer": float(duration),
+    }
+    memories = list(getattr(survivor, "social_memories", []))
+    memories.append(memory)
+    survivor.social_memories = memories[-8:]
+
+
+def latest_social_memory(survivor, topic: str | None = None) -> dict[str, object] | None:
+    memories = list(getattr(survivor, "social_memories", []))
+    if topic is not None:
+        memories = [memory for memory in memories if memory.get("topic") == topic]
+    memories = [memory for memory in memories if float(memory.get("timer", 0.0)) > 0.0]
+    if not memories:
+        return None
+    return max(memories, key=lambda memory: (float(memory.get("impact", 0.0)), float(memory.get("timer", 0.0))))
+
+
+def social_memory_bias(survivor, *, topic: str | None = None) -> float:
+    memories = list(getattr(survivor, "social_memories", []))
+    if topic is not None:
+        memories = [memory for memory in memories if memory.get("topic") == topic]
+    if not memories:
+        return 0.0
+    weighted_total = 0.0
+    total_weight = 0.0
+    for memory in memories:
+        timer = clamp(float(memory.get("timer", 0.0)) / 120.0, 0.15, 1.0)
+        weight = abs(float(memory.get("impact", 0.0))) * timer + 0.3
+        weighted_total += float(memory.get("impact", 0.0)) * weight
+        total_weight += weight
+    return weighted_total / max(0.001, total_weight)
+
+
+def social_summary_text(game, survivor) -> tuple[str, tuple[int, int, int]]:
+    memory = latest_social_memory(survivor)
+    if memory:
+        return str(memory.get("text", "")), tuple(memory.get("color", PALETTE["text"]))
+    friend = game.best_friend_name(survivor)
+    rival = game.rival_name(survivor)
+    if rival and relationship_score(game, survivor, next((other for other in game.survivors if other.name == rival), survivor)) < -35:
+        return f"Ainda estou atravessado com {rival}.", PALETTE["danger_soft"]
+    if friend and survivor.morale > 55:
+        return f"{friend} ainda me mantem no eixo.", PALETTE["accent_soft"]
+    if survivor.trust_leader < 34:
+        return "Ainda estou segurando isso no osso.", PALETTE["muted"]
+    return "Ainda estou em pe.", PALETTE["text"]
+
+
+def contextual_build_request_reason(game, survivor, kind: str) -> tuple[str, str]:
+    friend = game.best_friend_name(survivor)
+    rival = game.rival_name(survivor)
+    if kind == "barraca":
+        bark = "Chefe, a gente ta dormindo apertado."
+        reason = "faltam leitos e o acampamento esta espremido"
+        if friend:
+            reason = f"faltam leitos e {friend} ja esta virando a noite sem canto"
+        return bark, reason
+    if kind == "serraria":
+        bark = "Chefe, sem serraria a madeira emperra."
+        reason = "as toras estao chegando cruas demais para a oficina segurar"
+        return bark, reason
+    if kind == "cozinha":
+        bark = "Chefe, precisamos de cozinha de verdade."
+        reason = "a comida esta curta e o campo precisa de refeicao mais firme"
+        return bark, reason
+    if kind == "enfermaria":
+        bark = "Chefe, precisamos de enfermaria."
+        reason = "os feridos e a pressao da mata pedem cuidado mais serio"
+        return bark, reason
+    if kind == "horta":
+        bark = "Chefe, a terra podia trabalhar pra gente."
+        reason = "a panela esta vazia demais para depender so da mata"
+        if rival and survivor.has_trait("paranoico"):
+            reason = f"a panela esta vazia e {rival} ja esta ficando sem paciencia com a fome"
+        return bark, reason
+    if kind == "anexo":
+        bark = "Chefe, a linha precisa de apoio."
+        reason = "as barricadas estao sentindo o peso e falta manutencao perto da cerca"
+        return bark, reason
+    if kind == "torre":
+        bark = "Chefe, precisamos de olho alto na mata."
+        reason = "a cerca precisa ler a trilha antes do impacto chegar"
+        return bark, reason
+    return f"Chefe, precisamos de {kind}.", "essa obra ajudaria a clareira a respirar melhor"
+
+
+def survivor_by_name(game, name: str | None):
+    if not name:
+        return None
+    return next((survivor for survivor in game.survivors if survivor.name == name and survivor.is_alive()), None)
+
+
+def directive_compliance_modifier(game, survivor, directive: str) -> float:
+    modifier = 0.0
+    modifier += social_memory_bias(survivor) * 0.045
+    if directive == "rest" and (survivor.exhaustion > 62 or survivor.sleep_debt > 44):
+        modifier += 0.12
+    if directive in {"guard", "repair"} and latest_social_memory(survivor, "alarme"):
+        modifier += 0.08
+    if directive in {"wood", "food"} and latest_social_memory(survivor, "feud"):
+        modifier -= 0.05
+    if survivor.trust_leader < 30 and directive not in {"rest", "fire"}:
+        modifier -= 0.06
+    return modifier
+
+
+def nearby_assignment_affinity(game, survivor, building) -> float:
+    score = 0.0
+    for other_building in game.buildings:
+        if other_building.uid == building.uid or not other_building.assigned_to:
+            continue
+        if other_building.pos.distance_to(building.pos) > 120:
+            continue
+        other = survivor_by_name(game, other_building.assigned_to)
+        if not other or other.name == survivor.name:
+            continue
+        relation = relationship_score(game, survivor, other)
+        score += relation * 0.06
+    return score
+
+
 def survivor_bark_options(game, survivor) -> list[tuple[str, tuple[int, int, int]]]:
     """Escolhe frases curtas que resumem o estado social do morador."""
     lines: list[tuple[str, tuple[int, int, int]]] = []
@@ -89,6 +225,9 @@ def survivor_bark_options(game, survivor) -> list[tuple[str, tuple[int, int, int
         lines.append((f"{friend} ainda segura meu juizo.", PALETTE["accent_soft"]))
     if rival and survivor.conflict_cooldown <= 0 and game.random.random() < 0.28:
         lines.append((f"{rival} vai me fazer explodir.", PALETTE["danger_soft"]))
+    memory = latest_social_memory(survivor)
+    if memory and game.random.random() < 0.42:
+        lines.append((str(memory.get("text", "")), tuple(memory.get("color", PALETTE["text"]))))
 
     if not lines:
         lines.extend(
@@ -138,6 +277,19 @@ def survivors_react_to_event(game, event, *, resolved: bool | None = None) -> No
     text, color = event_reactions.get(event.kind, ("Segura firme.", PALETTE["text"]))
     for survivor in living[:2]:
         trigger_survivor_bark(game, survivor, text, color, duration=2.4)
+    for survivor in game.living_survivors():
+        distance = survivor.distance_to(event.pos)
+        heard = distance < 240
+        duration = 160.0 if heard else 96.0
+        impact = 0.0
+        topic = event.kind
+        if resolved:
+            impact = 1.6 if event.kind in {"incendio", "doenca", "alarme", "expedicao"} else 1.0
+            if event.kind in {"abrigo", "faccao"}:
+                impact = 0.7
+        else:
+            impact = -1.8 if event.kind in {"desercao", "doenca", "fuga"} else -1.1
+        remember_social_event(game, survivor, text, color, topic=topic, impact=impact, duration=duration)
 
 
 def update_survivor_barks(game, dt: float) -> None:
@@ -155,6 +307,7 @@ def update_survivor_barks(game, dt: float) -> None:
     weighted = sorted(
         candidates,
         key=lambda survivor: (
+            latest_social_memory(survivor) is None or survivor.social_comment_cooldown > 0,
             game.dynamic_event_for_survivor(survivor) is None,
             survivor.insanity,
             -survivor.trust_leader,
@@ -164,6 +317,8 @@ def update_survivor_barks(game, dt: float) -> None:
     chosen = weighted[0]
     text, color = game.random.choice(game.survivor_bark_options(chosen))
     game.trigger_survivor_bark(chosen, text, color)
+    if latest_social_memory(chosen):
+        chosen.social_comment_cooldown = game.random.uniform(12.0, 22.0)
     game.bark_timer = game.random.uniform(2.8, 5.8)
 
 
@@ -272,6 +427,8 @@ def update_social_dynamics(game, dt: float) -> None:
             drift += 0.45
         if game.average_morale() < 45:
             drift -= 0.3
+        drift += social_memory_bias(survivor, topic="abrigo") * 0.05
+        drift += social_memory_bias(survivor, topic="faccao") * 0.04
         drift -= pressure * 0.55
         drift -= survivor.exhaustion / 320
         if survivor.has_trait("paranoico"):
@@ -280,6 +437,7 @@ def update_social_dynamics(game, dt: float) -> None:
             drift += 0.18
         game.adjust_trust(survivor, drift)
         insanity_shift = pressure * 5.2 + (0.8 if survivor.has_trait("paranoico") else 0.0)
+        insanity_shift -= social_memory_bias(survivor) * 0.12
         insanity_shift += max(0.0, 48 - survivor.morale) * 0.035
         insanity_shift += max(0.0, survivor.exhaustion - 58) * 0.03
         if game.player.distance_to(survivor.pos) < 150:
@@ -287,6 +445,10 @@ def update_social_dynamics(game, dt: float) -> None:
         if survivor.state in {"sleep", "rest", "socialize"}:
             insanity_shift -= 1.6
         survivor.insanity = clamp(survivor.insanity + insanity_shift, 0, 100)
+        if survivor.state == "socialize" and latest_social_memory(survivor, "bond"):
+            survivor.morale = clamp(survivor.morale + 0.4, 0, 100)
+        if survivor.state in {"guard", "watchtower"} and latest_social_memory(survivor, "feud"):
+            survivor.morale = clamp(survivor.morale - 0.3, 0, 100)
 
     close_pairs = [
         (a, b)
@@ -326,6 +488,12 @@ def update_social_dynamics(game, dt: float) -> None:
                 midpoint = survivor_a.pos.lerp(survivor_b.pos, 0.5)
                 game.spawn_floating_text("briga", midpoint, PALETTE["danger_soft"])
                 game.set_event_message(f"{survivor_a.name} e {survivor_b.name} bateram de frente no campo.", duration=4.8)
+                remember_social_event(game, survivor_a, f"Nao esqueci a briga com {survivor_b.name}.", PALETTE["danger_soft"], topic="feud", impact=-2.8, duration=180.0)
+                remember_social_event(game, survivor_b, f"{survivor_a.name} ainda ta atravessado comigo.", PALETTE["danger_soft"], topic="feud", impact=-2.8, duration=180.0)
+                survivor_a.social_comment_cooldown = game.random.uniform(6.0, 10.0)
+                survivor_b.social_comment_cooldown = game.random.uniform(6.0, 10.0)
+                if game.random.random() < 0.5:
+                    game.add_chat_message("radio", f"O campo ouviu a briga entre {survivor_a.name} e {survivor_b.name}.", PALETTE["danger_soft"], source="system")
                 continue
 
         if relation >= 30 and same_zone and survivor_a.bond_cooldown <= 0 and survivor_b.bond_cooldown <= 0:
@@ -338,10 +506,36 @@ def update_social_dynamics(game, dt: float) -> None:
                 survivor_a.bond_cooldown = 16.0
                 survivor_b.bond_cooldown = 16.0
                 game.spawn_floating_text("amizade", survivor_a.pos.lerp(survivor_b.pos, 0.5), PALETTE["morale"])
+                remember_social_event(game, survivor_a, f"{survivor_b.name} segurou o clima comigo no fogo.", PALETTE["morale"], topic="bond", impact=2.1, duration=170.0)
+                remember_social_event(game, survivor_b, f"{survivor_a.name} me devolveu um pouco de folego.", PALETTE["morale"], topic="bond", impact=2.1, duration=170.0)
+                survivor_a.social_comment_cooldown = game.random.uniform(6.0, 10.0)
+                survivor_b.social_comment_cooldown = game.random.uniform(6.0, 10.0)
+                if game.random.random() < 0.45:
+                    game.add_chat_message("radio", f"{survivor_a.name} e {survivor_b.name} baixaram a guarda perto da fogueira.", PALETTE["morale"], source="system")
+                continue
+
+        if relation <= -12 and same_zone and pressure < 0.24 and survivor_a.bond_cooldown <= 0 and survivor_b.bond_cooldown <= 0:
+            chance = 0.04 + max(0.0, 24 + relation) * 0.002
+            if game.random.random() < chance:
+                game.adjust_relationship(survivor_a, survivor_b, 2.2)
+                survivor_a.bond_cooldown = 12.0
+                survivor_b.bond_cooldown = 12.0
+                remember_social_event(game, survivor_a, f"{survivor_b.name} baixou a guarda por um minuto.", PALETTE["accent_soft"], topic="repair", impact=0.9, duration=120.0)
+                remember_social_event(game, survivor_b, f"{survivor_a.name} nao veio pra cima dessa vez.", PALETTE["accent_soft"], topic="repair", impact=0.9, duration=120.0)
                 continue
 
         if same_job and relation < 20:
             game.adjust_relationship(survivor_a, survivor_b, 0.8)
+        if same_job and relation >= 38:
+            survivor_a.energy = clamp(survivor_a.energy + 1.1, 0, 100)
+            survivor_b.energy = clamp(survivor_b.energy + 1.1, 0, 100)
+            survivor_a.morale = clamp(survivor_a.morale + 0.8, 0, 100)
+            survivor_b.morale = clamp(survivor_b.morale + 0.8, 0, 100)
+        elif same_job and relation <= -28:
+            survivor_a.energy = clamp(survivor_a.energy - 0.8, 0, 100)
+            survivor_b.energy = clamp(survivor_b.energy - 0.8, 0, 100)
+            survivor_a.morale = clamp(survivor_a.morale - 0.6, 0, 100)
+            survivor_b.morale = clamp(survivor_b.morale - 0.6, 0, 100)
 
 
 def assign_building_specialists(game) -> None:
@@ -365,7 +559,14 @@ def assign_building_specialists(game) -> None:
         if not candidates:
             building.assigned_to = None
             continue
-        chosen = max(candidates, key=lambda survivor: (survivor.energy, survivor.morale))
+        chosen = max(
+            candidates,
+            key=lambda survivor: (
+                survivor.energy + survivor.morale * 0.6 + nearby_assignment_affinity(game, survivor, building),
+                survivor.morale,
+                -survivor.exhaustion,
+            ),
+        )
         chosen.assigned_building_id = building.uid
         chosen.assigned_building_kind = building.kind
         building.assigned_to = chosen.name

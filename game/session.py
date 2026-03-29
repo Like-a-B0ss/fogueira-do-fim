@@ -687,6 +687,8 @@ class Game(WorldMixin, RenderMixin):
                     "leader_directive": survivor.leader_directive,
                     "leader_directive_timer": survivor.leader_directive_timer,
                     "build_request_cooldown": survivor.build_request_cooldown,
+                    "social_memories": list(survivor.social_memories),
+                    "social_comment_cooldown": survivor.social_comment_cooldown,
                 }
                 for survivor in self.survivors
             ],
@@ -961,6 +963,8 @@ class Game(WorldMixin, RenderMixin):
             survivor.leader_directive = saved.get("leader_directive")
             survivor.leader_directive_timer = float(saved.get("leader_directive_timer", 0.0))
             survivor.build_request_cooldown = float(saved.get("build_request_cooldown", survivor.build_request_cooldown))
+            survivor.social_memories = [dict(memory) for memory in list(saved.get("social_memories", []))][-8:]
+            survivor.social_comment_cooldown = float(saved.get("social_comment_cooldown", survivor.social_comment_cooldown))
             survivor.state = "expedition" if survivor.on_expedition else "idle"
             survivor.state_label = "em expedicao" if survivor.on_expedition else "reorganizando"
             self.survivors.append(survivor)
@@ -1522,6 +1526,7 @@ class Game(WorldMixin, RenderMixin):
 
         for node in self.resource_nodes:
             node.update(sim_dt)
+        self.update_buildings(sim_dt)
         for survivor in self.survivors:
             survivor.update(self, sim_dt)
             self.resolve_actor_camp_collision(survivor)
@@ -1551,25 +1556,25 @@ class Game(WorldMixin, RenderMixin):
             if self.spawn_budget > 0 and self.spawn_timer <= 0:
                 self.spawn_night_zombie()
                 if self.horde_active:
-                    base_interval = 3.25 if self.day <= 2 else 2.95
-                    min_interval = 1.3
+                    base_interval = 3.45 if self.day <= 3 else 3.05
+                    min_interval = 1.45
                 else:
-                    base_interval = 4.4 if self.day <= 2 else 3.7
-                    min_interval = 1.55
+                    base_interval = 4.9 if self.day <= 3 else 4.1
+                    min_interval = 1.8
                 self.spawn_timer = max(min_interval, base_interval - self.day * 0.06)
         else:
             self.day_spawn_timer -= sim_dt
             if (
                 self.day_spawn_timer <= 0
-                and self.day >= 2
+                and self.day >= 3
                 and self.player.pos.distance_to(CAMP_CENTER) > self.camp_clearance_radius() + 220
-                and len(self.zombies) < 12
-                and self.random.random() < (0.22 if self.day <= 3 else 0.34)
+                and len(self.zombies) < 10
+                and self.random.random() < (0.18 if self.day <= 4 else 0.28)
             ):
                 self.spawn_forest_ambient_zombie()
-                self.day_spawn_timer = self.random.uniform(16.0, 26.0)
+                self.day_spawn_timer = self.random.uniform(18.0, 30.0)
             elif self.day_spawn_timer <= 0:
-                self.day_spawn_timer = self.random.uniform(14.0, 22.0)
+                self.day_spawn_timer = self.random.uniform(16.0, 24.0)
 
         if self.player_sleeping:
             self.player_sleep_elapsed += sim_dt

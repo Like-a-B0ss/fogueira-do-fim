@@ -31,11 +31,11 @@ DEFAULT_GAME_SETTINGS: dict[str, object] = {
     },
     "ui": {
         "runtime_defaults": {
-            "master_volume": 0.86,
-            "ambience_volume": 0.92,
-            "music_volume": 0.84,
+            "master_volume": 1.0,
+            "ambience_volume": 1.0,
+            "music_volume": 1.0,
             "screen_shake_scale": 1.0,
-            "fog_strength": 0.95,
+            "fog_strength": 1.0,
             "ui_contrast": 1.0,
         },
         "runtime_ranges": {
@@ -50,11 +50,11 @@ DEFAULT_GAME_SETTINGS: dict[str, object] = {
     },
     "gameplay": {
         "starting_resources": {
-            "logs": 9,
-            "wood": 8,
-            "food": 8,
-            "herbs": 2,
-            "scrap": 5,
+            "logs": 10,
+            "wood": 9,
+            "food": 9,
+            "herbs": 3,
+            "scrap": 6,
             "meals": 2,
             "medicine": 1,
         },
@@ -62,9 +62,9 @@ DEFAULT_GAME_SETTINGS: dict[str, object] = {
         "max_camp_level": 5,
         "bonfire_start": {"heat": 64.0, "ember_bed": 52.0},
         "timers": {
-            "dynamic_event_cooldown": 28.0,
-            "spawn_timer": 4.0,
-            "day_spawn_timer": 18.0,
+            "dynamic_event_cooldown": 32.0,
+            "spawn_timer": 4.8,
+            "day_spawn_timer": 22.0,
         },
     },
     "testing": {

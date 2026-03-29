@@ -173,7 +173,7 @@ class AudioSystem:
         storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
 
         if daylight < 0.18:
-            options = [("ambient_night", 0.15)]
+            options = [("ambient_night", 0.18), ("ambient_dread", 0.11)]
             if biome == "swamp":
                 options.append(("ambient_swamp", 0.17))
             elif biome == "grove":
@@ -249,6 +249,19 @@ class AudioSystem:
         distant_threat = max(0.0, game.spawn_budget / 12) if game.is_night else 0.0
         pressure = min(1.0, visible_threat / 12 + distant_threat * 0.35)
         if pressure <= 0.06:
+            if game.is_night and self.rng.random() < 0.58:
+                angle = self.rng.uniform(0.0, math.tau)
+                distance = self.rng.uniform(180.0, 320.0)
+                source_pos = self.listener_pos + Vector2(math.cos(angle), math.sin(angle)) * distance
+                self._play(
+                    "zombie_far",
+                    volume_scale=0.08 + distant_threat * 0.08,
+                    category="ambience",
+                    source_pos=source_pos,
+                    max_distance=420.0,
+                )
+                self.zombie_timer = self.rng.uniform(3.8, 6.0)
+                return
             self.zombie_timer = self.rng.uniform(4.8, 7.2)
             return
 
@@ -260,7 +273,7 @@ class AudioSystem:
         if visible_threat >= 7 or game.audio_tension() >= 0.82:
             self._play(
                 "zombie_horde",
-                volume_scale=0.14 + pressure * 0.16,
+                volume_scale=0.16 + pressure * 0.18,
                 category="ambience",
                 source_pos=source_pos,
                 max_distance=520.0,
@@ -268,7 +281,7 @@ class AudioSystem:
         else:
             self._play(
                 "zombie_groan",
-                volume_scale=0.11 + pressure * 0.14,
+                volume_scale=0.13 + pressure * 0.16,
                 category="ambience",
                 source_pos=source_pos,
                 max_distance=420.0,
@@ -287,13 +300,23 @@ class AudioSystem:
         tension = min(1.0, tension + game.weather_mist_factor() * 0.03)
         tension = min(1.0, tension + game.weather_wind_factor() * 0.04)
         tension = min(1.0, tension + game.weather_storm_factor() * 0.07)
+        dread = max(
+            0.0,
+            (0.14 if game.is_night else 0.0)
+            + game.weather_mist_factor() * 0.26
+            + game.weather_cloud_cover() * 0.18
+            + game.weather_storm_factor() * 0.24,
+        )
 
         if tension >= 0.82:
-            self._play("music_horde", volume_scale=0.12 + tension * 0.07, category="music")
+            self._play("music_horde", volume_scale=0.14 + tension * 0.08, category="music")
             self.music_timer = self.rng.uniform(2.8, 4.4)
         elif tension >= 0.46:
-            self._play("music_threat", volume_scale=0.1 + tension * 0.06, category="music")
+            self._play("music_threat", volume_scale=0.12 + tension * 0.07, category="music")
             self.music_timer = self.rng.uniform(4.0, 6.2)
+        elif dread >= 0.2:
+            self._play("music_dread", volume_scale=0.08 + dread * 0.05, category="music")
+            self.music_timer = self.rng.uniform(5.2, 8.0)
         elif not game.is_night and self.rng.random() < 0.62:
             self._play("music_calm", volume_scale=0.08, category="music")
             self.music_timer = self.rng.uniform(6.0, 9.6)
@@ -380,9 +403,12 @@ class AudioSystem:
             "ambient_grove": [self._make_ambient_grove(seed) for seed in (77, 78, 79)],
             "ambient_swamp": [self._make_ambient_swamp(seed) for seed in (80, 81, 82)],
             "ambient_ruin": [self._make_ambient_ruin(seed) for seed in (83, 84, 85)],
+            "ambient_dread": [self._make_ambient_dread(seed) for seed in (86, 87, 88)],
             "zombie_groan": [self._make_zombie_groan(seed) for seed in (91, 92, 93)],
+            "zombie_far": [self._make_zombie_far(seed) for seed in (96, 97, 98)],
             "zombie_horde": [self._make_zombie_horde(seed) for seed in (94, 95)],
             "music_calm": [self._make_music_calm(seed) for seed in (101, 102)],
+            "music_dread": [self._make_music_dread(seed) for seed in (107, 108)],
             "music_threat": [self._make_music_threat(seed) for seed in (103, 104)],
             "music_horde": [self._make_music_horde(seed) for seed in (105, 106)],
         }
@@ -766,6 +792,16 @@ class AudioSystem:
             ],
         )
 
+    def _make_ambient_dread(self, seed: int) -> pygame.mixer.Sound:
+        return self._synth(
+            1.18,
+            [
+                {"waveform": "sine", "start_freq": 66 + seed, "end_freq": 54 + seed, "volume": 0.055, "attack": 0.08, "decay": 0.12, "sustain_level": 0.16, "release": 0.24, "vibrato_rate": 0.7, "vibrato_depth": 0.025, "seed": seed},
+                {"waveform": "triangle", "start": 0.14, "duration": 0.74, "start_freq": 98 + seed, "end_freq": 82 + seed, "volume": 0.032, "attack": 0.08, "decay": 0.1, "sustain_level": 0.1, "release": 0.18, "seed": seed * 3},
+                {"waveform": "noise", "start": 0.04, "duration": 0.22, "volume": 0.012, "attack": 0.01, "decay": 0.03, "sustain_level": 0.0, "release": 0.04, "seed": seed * 5},
+            ],
+        )
+
     def _make_zombie_groan(self, seed: int) -> pygame.mixer.Sound:
         return self._synth(
             0.72,
@@ -773,6 +809,16 @@ class AudioSystem:
                 {"waveform": "saw", "start_freq": 118 + seed * 2, "end_freq": 78 + seed, "volume": 0.08, "attack": 0.03, "decay": 0.08, "sustain_level": 0.14, "release": 0.16, "vibrato_rate": 4.0, "vibrato_depth": 0.03, "seed": seed},
                 {"waveform": "sine", "start": 0.04, "duration": 0.5, "start_freq": 94 + seed, "end_freq": 66 + seed, "volume": 0.05, "attack": 0.04, "decay": 0.06, "sustain_level": 0.1, "release": 0.14, "seed": seed * 7},
                 {"waveform": "noise", "start": 0.02, "duration": 0.12, "volume": 0.02, "attack": 0.004, "decay": 0.02, "sustain_level": 0.0, "release": 0.03, "seed": seed * 13},
+            ],
+        )
+
+    def _make_zombie_far(self, seed: int) -> pygame.mixer.Sound:
+        return self._synth(
+            0.96,
+            [
+                {"waveform": "sine", "start_freq": 84 + seed, "end_freq": 58 + seed, "volume": 0.05, "attack": 0.05, "decay": 0.08, "sustain_level": 0.14, "release": 0.2, "vibrato_rate": 3.2, "vibrato_depth": 0.045, "seed": seed},
+                {"waveform": "saw", "start": 0.08, "duration": 0.46, "start_freq": 126 + seed, "end_freq": 88 + seed, "volume": 0.028, "attack": 0.03, "decay": 0.06, "sustain_level": 0.08, "release": 0.12, "seed": seed * 3},
+                {"waveform": "noise", "start": 0.03, "duration": 0.16, "volume": 0.01, "attack": 0.004, "decay": 0.018, "sustain_level": 0.0, "release": 0.025, "seed": seed * 7},
             ],
         )
 
@@ -793,6 +839,16 @@ class AudioSystem:
                 {"waveform": "triangle", "start_freq": 196 + seed * 2, "end_freq": 220 + seed * 2, "volume": 0.05, "attack": 0.08, "decay": 0.14, "sustain_level": 0.16, "release": 0.24, "seed": seed},
                 {"waveform": "sine", "start": 0.18, "duration": 0.72, "start_freq": 294 + seed * 3, "end_freq": 330 + seed * 3, "volume": 0.045, "attack": 0.06, "decay": 0.1, "sustain_level": 0.14, "release": 0.18, "seed": seed * 3},
                 {"waveform": "sine", "start": 0.44, "duration": 0.58, "start_freq": 392 + seed * 3, "end_freq": 440 + seed * 4, "volume": 0.03, "attack": 0.05, "decay": 0.08, "sustain_level": 0.1, "release": 0.14, "seed": seed * 5},
+            ],
+        )
+
+    def _make_music_dread(self, seed: int) -> pygame.mixer.Sound:
+        return self._synth(
+            1.58,
+            [
+                {"waveform": "sine", "start_freq": 72 + seed, "end_freq": 62 + seed, "volume": 0.055, "attack": 0.1, "decay": 0.14, "sustain_level": 0.18, "release": 0.28, "vibrato_rate": 0.5, "vibrato_depth": 0.018, "seed": seed},
+                {"waveform": "triangle", "start": 0.24, "duration": 0.7, "start_freq": 108 + seed, "end_freq": 96 + seed, "volume": 0.03, "attack": 0.08, "decay": 0.1, "sustain_level": 0.1, "release": 0.18, "seed": seed * 3},
+                {"waveform": "noise", "start": 0.0, "duration": 0.14, "volume": 0.012, "attack": 0.008, "decay": 0.02, "sustain_level": 0.0, "release": 0.03, "seed": seed * 5},
             ],
         )
 

@@ -51,6 +51,7 @@ class Player(Actor):
         self.max_stamina = 100.0
         self.attack_cooldown = 0.0
         self.attack_flash = 0.0
+        self.hurt_flash = 0.0
         self.interact_cooldown = 0.0
         self.last_move = Vector2(1, 0)
 
@@ -91,6 +92,7 @@ class Player(Actor):
             self.velocity *= 0.2
         self.attack_cooldown = max(0.0, self.attack_cooldown - dt)
         self.attack_flash = max(0.0, self.attack_flash - dt)
+        self.hurt_flash = max(0.0, self.hurt_flash - dt)
         self.interact_cooldown = max(0.0, self.interact_cooldown - dt)
 
     def perform_attack(self, game: "Game") -> None:
@@ -100,6 +102,7 @@ class Player(Actor):
         self.attack_flash = 0.22
         game.audio.play_attack(source_pos=self.pos)
         hit_any = False
+        hit_count = 0
         for zombie in game.zombies:
             if not zombie.is_alive():
                 continue
@@ -109,19 +112,60 @@ class Player(Actor):
                 continue
             angle = self.facing.angle_to(offset)
             if abs(angle) <= 58:
-                zombie.health -= 42
-                zombie.stagger = 0.18
-                zombie.pos += offset.normalize() * 18
+                damage = 42.0
+                stagger = 0.18
+                knockback = 18.0
+                pulse_radius = 12
+                shake = 1.8
+                ember_count = 2
+                if zombie.variant == "runner":
+                    damage = 46.0
+                    stagger = 0.24
+                    knockback = 24.0
+                    pulse_radius = 14
+                    shake = 2.0
+                elif zombie.variant == "brute":
+                    damage = 34.0
+                    stagger = 0.09
+                    knockback = 10.0
+                    pulse_radius = 16
+                    shake = 2.4
+                    ember_count = 3
+                elif zombie.variant == "howler":
+                    damage = 44.0
+                    stagger = 0.2
+                    knockback = 20.0
+                elif zombie.variant == "raider":
+                    damage = 40.0
+                    stagger = 0.16
+                    knockback = 17.0
+                if zombie.is_boss:
+                    damage = 30.0
+                    stagger = 0.07
+                    knockback = 8.0
+                    pulse_radius = 18
+                    shake = 2.9
+                    ember_count = 4
+                    zombie.visual_state = "enraged"
+                zombie.health -= damage
+                zombie.stagger = max(zombie.stagger, stagger)
+                zombie.pos += offset.normalize() * knockback
                 hit_any = True
-                game.impact_burst(zombie.pos, PALETTE["danger_soft"], radius=14, shake=1.8, ember_count=2)
+                hit_count += 1
+                game.impact_burst(zombie.pos, PALETTE["danger_soft"], radius=14, shake=shake, ember_count=ember_count)
                 game.damage_pulses.append(
-                    DamagePulse(Vector2(zombie.pos), 12, 0.28, PALETTE["danger_soft"])
+                    DamagePulse(Vector2(zombie.pos), pulse_radius, 0.28, PALETTE["danger_soft"])
                 )
+                if zombie.variant == "brute":
+                    game.spawn_floating_text("pancada seca", zombie.pos + Vector2(0, -18), PALETTE["danger_soft"])
+                elif zombie.is_boss:
+                    game.spawn_floating_text("chefe ferido", zombie.pos + Vector2(0, -20), PALETTE["morale"])
                 if zombie.health <= 0:
                     game.spawn_floating_text("zumbi abatido", zombie.pos, PALETTE["accent_soft"])
                     game.morale_flash = min(1.0, game.morale_flash + 0.15)
         if hit_any:
-            game.spawn_floating_text("corte", self.pos + self.facing * 26, PALETTE["accent_soft"])
+            label = "golpe amplo" if hit_count > 1 else "corte"
+            game.spawn_floating_text(label, self.pos + self.facing * 26, PALETTE["accent_soft"])
             game.audio.play_impact("flesh", source_pos=self.pos)
             return
 
@@ -603,6 +647,8 @@ class Survivor(Actor):
         self.bark_color = PALETTE["text"]
         self.bark_cooldown = random.uniform(2.5, 5.5)
         self.build_request_cooldown = random.uniform(18.0, 34.0)
+        self.social_memories: list[dict[str, object]] = []
+        self.social_comment_cooldown = random.uniform(8.0, 16.0)
 
     def has_trait(self, trait: str) -> bool:
         return trait in self.traits
@@ -631,6 +677,14 @@ class Survivor(Actor):
         self.bark_cooldown = max(0.0, self.bark_cooldown - dt)
         self.leader_directive_timer = max(0.0, self.leader_directive_timer - dt)
         self.build_request_cooldown = max(0.0, self.build_request_cooldown - dt)
+        self.social_comment_cooldown = max(0.0, self.social_comment_cooldown - dt)
+        kept_memories: list[dict[str, object]] = []
+        for memory in self.social_memories:
+            updated = dict(memory)
+            updated["timer"] = max(0.0, float(updated.get("timer", 0.0)) - dt)
+            if float(updated.get("timer", 0.0)) > 0.0:
+                kept_memories.append(updated)
+        self.social_memories = kept_memories[-8:]
         if self.leader_directive_timer <= 0:
             self.leader_directive = None
 
@@ -1195,8 +1249,13 @@ class Survivor(Actor):
             if self.move_toward(garden.pos, dt):
                 self.task_timer += dt
                 if self.task_timer >= 4.8:
+                    if not game.garden_is_ready(garden):
+                        self.task_timer = 0.0
+                        self.decision_timer = 0
+                        return
                     bundle = game.garden_harvest_bundle(self.role)
                     game.add_resource_bundle(bundle)
+                    game.start_garden_regrow(garden)
                     game.spawn_floating_text("colheita", garden.pos, PALETTE["heal"])
                     self.task_timer = 0.6
                     self.decision_timer = 1.8
@@ -1402,6 +1461,11 @@ class Zombie(Actor):
         self.pursuit_timer = 0.0
         self.howl_cooldown = random.uniform(7.0, 11.5)
         self.camp_pressure = random.uniform(0.4, 1.0)
+        self.charge_cooldown = 0.0
+        self.charge_timer = 0.0
+        self.slam_cooldown = 0.0
+        self.enrage_level = 0
+        self.visual_state = ""
         if not self.is_boss:
             roll = random.random()
             if roll < 0.17:
@@ -1411,6 +1475,7 @@ class Zombie(Actor):
                 self.health = self.max_health
                 self.contact_damage *= 0.98
                 self.alert_radius = 280
+                self.charge_cooldown = random.uniform(1.8, 3.2)
             elif roll < 0.3:
                 self.variant = "brute"
                 self.radius = 20
@@ -1419,6 +1484,7 @@ class Zombie(Actor):
                 self.health = self.max_health
                 self.contact_damage *= 1.28
                 self.alert_radius = 220
+                self.slam_cooldown = random.uniform(3.6, 5.2)
             elif roll < 0.42:
                 self.variant = "howler"
                 self.speed *= 0.96
@@ -1438,6 +1504,7 @@ class Zombie(Actor):
             self.variant = str(boss_profile.get("variant", "boss"))
             self.weapon_name = str(boss_profile.get("weapon", "garras"))
             self.alert_radius = float(boss_profile.get("alert_radius", 340))
+            self.slam_cooldown = random.uniform(4.2, 6.0)
 
     def update(self, game: "Game", dt: float) -> None:
         if not self.is_alive():
@@ -1446,8 +1513,31 @@ class Zombie(Actor):
         self.stagger = max(0.0, self.stagger - dt)
         self.pursuit_timer = max(0.0, self.pursuit_timer - dt)
         self.howl_cooldown = max(0.0, self.howl_cooldown - dt)
+        self.charge_cooldown = max(0.0, self.charge_cooldown - dt)
+        self.charge_timer = max(0.0, self.charge_timer - dt)
+        self.slam_cooldown = max(0.0, self.slam_cooldown - dt)
+        self.visual_state = ""
         self.shamble += dt * 3.0
         if self.is_boss:
+            health_ratio = self.health / max(1.0, self.max_health)
+            if health_ratio < 0.72 and self.enrage_level < 1:
+                self.enrage_level = 1
+                self.speed *= 1.06
+                self.contact_damage *= 1.08
+                self.alert_radius += 24
+                self.howl_cooldown = min(self.howl_cooldown, 2.8)
+                self.visual_state = "enraged"
+                game.spawn_floating_text("furia", self.pos, PALETTE["danger_soft"])
+                game.damage_pulses.append(DamagePulse(Vector2(self.pos), 22, 0.3, PALETTE["danger_soft"]))
+            if health_ratio < 0.38 and self.enrage_level < 2:
+                self.enrage_level = 2
+                self.speed *= 1.08
+                self.contact_damage *= 1.1
+                self.alert_radius += 28
+                self.howl_cooldown = min(self.howl_cooldown, 1.4)
+                self.visual_state = "enraged"
+                game.spawn_floating_text("furia alta", self.pos, PALETTE["danger"])
+                game.damage_pulses.append(DamagePulse(Vector2(self.pos), 26, 0.32, PALETTE["danger"]))
             self.summon_cooldown = max(0.0, self.summon_cooldown - dt)
             if self.summon_cooldown <= 0 and self.distance_to(game.player.pos) < 340 and len(game.zombies) < 26:
                 game.spawn_local_zombies(self.pos, 2, pressure=True)
@@ -1463,6 +1553,14 @@ class Zombie(Actor):
         if target_actor and self.distance_to(target_actor.pos) < self.alert_radius:
             self.pursuit_timer = max(self.pursuit_timer, 4.4 if self.variant == "runner" else 3.2)
             target_visible = True
+            if self.variant == "runner" and self.charge_cooldown <= 0 and 70 < self.distance_to(target_actor.pos) < 230:
+                self.charge_timer = 0.82
+                self.charge_cooldown = random.uniform(3.8, 5.6)
+                self.visual_state = "charging"
+                game.spawn_floating_text("arranco", self.pos, PALETTE["danger_soft"])
+            elif self.variant == "howler" and self.howl_cooldown > 0.35:
+                self.howl_cooldown = min(self.howl_cooldown, 0.35)
+                self.visual_state = "howling"
         if self.distance_to(CAMP_CENTER) < game.camp_clearance_radius() + 240:
             self.pursuit_timer = max(self.pursuit_timer, 2.8 + self.camp_pressure * 1.8)
         if (
@@ -1475,7 +1573,13 @@ class Zombie(Actor):
             game.spawn_floating_text("chamado podre", self.pos, PALETTE["danger_soft"])
             self.howl_cooldown = random.uniform(4.8, 7.2) if self.variant == "howler" else random.uniform(7.5, 11.0)
 
-        if nearest_barricade and not nearest_barricade.is_broken() and not game.point_in_camp_square(self.pos, padding=-40):
+        near_camp_defense = self.distance_to(CAMP_CENTER) < game.camp_clearance_radius() + 170
+        if (
+            nearest_barricade
+            and not nearest_barricade.is_broken()
+            and near_camp_defense
+            and not game.point_in_camp_square(self.pos, padding=-40)
+        ):
             barricade_scale = 0.98 if self.pursuit_timer > 0 else 0.78
             if self.move_toward(nearest_barricade.pos, dt, barricade_scale if self.stagger <= 0 else barricade_scale * 0.46):
                 if self.attack_cooldown <= 0:
@@ -1502,23 +1606,46 @@ class Zombie(Actor):
         if target_actor and (target_visible or self.pursuit_timer > 0):
             speed_scale = 0.98 if self.is_boss else 0.9
             if self.variant == "runner":
-                speed_scale = 1.12
+                speed_scale = 1.12 if self.charge_timer <= 0 else 1.52
+                if self.charge_timer > 0:
+                    self.visual_state = "charging"
             elif self.variant == "brute":
                 speed_scale = 0.82
+                if self.slam_cooldown <= 0 and self.distance_to(target_actor.pos) < 96:
+                    self.visual_state = "slamming"
             if self.move_toward(target_actor.pos, dt, speed_scale if self.stagger <= 0 else speed_scale * 0.5):
                 if self.attack_cooldown <= 0:
-                    target_actor.health -= self.contact_damage
+                    hit_damage = self.contact_damage
+                    knockback = 14.0
                     self.attack_cooldown = 0.88 if self.is_boss else (0.9 if self.variant == "runner" else 1.1)
+                    if self.variant == "runner" and self.charge_timer > 0:
+                        hit_damage *= 1.22
+                        knockback = 24.0
+                        self.attack_cooldown = 0.72
+                        self.charge_timer = 0.0
+                    elif self.variant == "brute":
+                        hit_damage *= 1.18
+                        knockback = 28.0
+                        self.attack_cooldown = 1.2
+                        self.slam_cooldown = random.uniform(4.2, 6.0)
+                        self.visual_state = "slamming"
+                    elif self.is_boss and self.enrage_level > 0:
+                        hit_damage *= 1.0 + self.enrage_level * 0.08
+                        knockback = 20.0 + self.enrage_level * 5.0
+                    target_actor.health -= hit_damage
                     game.damage_pulses.append(
                         DamagePulse(Vector2(target_actor.pos), 12, 0.24, PALETTE["danger_soft"])
                     )
                     game.audio.play_impact("body", source_pos=target_actor.pos)
+                    if target_actor.pos.distance_to(self.pos) > 0.01:
+                        target_actor.pos += (target_actor.pos - self.pos).normalize() * knockback
                     if isinstance(target_actor, Survivor):
                         target_actor.morale = clamp(target_actor.morale - (18 if self.is_boss else 12), 0, 100)
                         if hasattr(target_actor, "insanity"):
                             target_actor.insanity = clamp(target_actor.insanity + (12 if self.is_boss else 7), 0, 100)
                     else:
-                        game.screen_shake = max(game.screen_shake, 6.2 if self.is_boss else 4.5)
+                        target_actor.hurt_flash = max(getattr(target_actor, "hurt_flash", 0.0), 0.34 if self.variant != "brute" else 0.42)
+                        game.screen_shake = max(game.screen_shake, 7.0 if self.is_boss else (5.6 if self.variant == "brute" else 4.8))
             return
 
         if self.distance_to(CAMP_CENTER) < game.camp_clearance_radius() + 260 or self.camp_pressure > 0.7:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unicodedata
 
 from .config import FOCUS_LABELS, PALETTE, clamp
+from . import world_social_system as social_system
 
 
 def normalize_chat_text(game, text: str) -> str:
@@ -158,7 +159,9 @@ def active_dialog_survivor(game) -> object | None:
 
 def open_survivor_dialog(game, survivor: object) -> None:
     game.dialog_survivor_name = getattr(survivor, "name", None)
+    summary_text, summary_color = game.social_summary_text(survivor)
     add_chat_message(game, "radio", f"{getattr(survivor, 'name', 'Morador')} te ouviu e esperou a ordem.", PALETTE["accent_soft"], source="system")
+    add_chat_message(game, getattr(survivor, "name", "morador"), summary_text, summary_color, source="npc")
 
 
 def close_survivor_dialog(game) -> None:
@@ -196,6 +199,8 @@ def execute_survivor_dialog_action(game, survivor: object, action: str) -> None:
         game.trigger_survivor_bark(survivor, text, color, duration=2.8)
         survivor.morale = clamp(getattr(survivor, "morale", 50.0) + 2.4, 0, 100)
         game.adjust_trust(survivor, 1.6)
+        summary_text, summary_color = game.social_summary_text(survivor)
+        add_chat_message(game, getattr(survivor, "name", "morador"), summary_text, summary_color, source="npc")
         game.audio.play_ui("focus")
         return
     if action in {"rest", "guard", "wood", "food", "repair", "cook", "clinic", "fire"}:
@@ -226,6 +231,7 @@ def try_assign_directive(game, survivor: object, directive: str, *, duration: fl
         compliance -= 0.12
     if getattr(survivor, "has_trait", lambda _trait: False)("paranoico") and directive not in {"guard", "repair"}:
         compliance -= 0.08
+    compliance += social_system.directive_compliance_modifier(game, survivor, directive)
     accepted = game.random.random() <= clamp(compliance, 0.18, 0.96)
     if not accepted:
         text = game.random.choice(
@@ -237,6 +243,7 @@ def try_assign_directive(game, survivor: object, directive: str, *, duration: fl
         )
         game.trigger_survivor_bark(survivor, text, PALETTE["danger_soft"], duration=2.6)
         game.adjust_trust(survivor, -0.8)
+        social_system.remember_social_event(game, survivor, "A ordem bateu torto comigo.", PALETTE["danger_soft"], topic="leader_order", impact=-1.2, duration=130.0)
         return False
     survivor.leader_directive = directive
     survivor.leader_directive_timer = duration
@@ -253,6 +260,7 @@ def try_assign_directive(game, survivor: object, directive: str, *, duration: fl
         "fire": "Eu cuido do fogo.",
     }.get(directive, "Recebido.")
     game.trigger_survivor_bark(survivor, response, PALETTE["accent_soft"], duration=2.4)
+    social_system.remember_social_event(game, survivor, response, PALETTE["accent_soft"], topic="leader_order", impact=1.0, duration=120.0)
     return True
 
 
@@ -300,6 +308,25 @@ def random_chat_reply(game, player_text: str) -> None:
     if "quem" in normalized or "ai" in normalized:
         survivor = max(living, key=lambda item: item.morale)
         game.trigger_survivor_bark(survivor, "Ainda tem gente de pe aqui.", PALETTE["text"], duration=2.6)
+        return
+    if any(word in normalized for word in ("briga", "feudo", "treta", "richa")):
+        feud_survivors = [survivor for survivor in living if social_system.latest_social_memory(survivor, "feud")]
+        if feud_survivors:
+            survivor = max(feud_survivors, key=lambda item: abs(social_system.social_memory_bias(item, topic="feud")))
+            summary_text, summary_color = game.social_summary_text(survivor)
+            game.trigger_survivor_bark(survivor, summary_text, summary_color, duration=2.8)
+            return
+    if any(word in normalized for word in ("amigo", "amizade", "junto", "unido")):
+        bonded = [survivor for survivor in living if social_system.latest_social_memory(survivor, "bond")]
+        if bonded:
+            survivor = max(bonded, key=lambda item: social_system.social_memory_bias(item, topic="bond"))
+            summary_text, summary_color = game.social_summary_text(survivor)
+            game.trigger_survivor_bark(survivor, summary_text, summary_color, duration=2.8)
+            return
+    if any(word in normalized for word in ("quem ta mal", "quem esta mal", "quem ta ruim", "quem esta ruim", "clima")):
+        survivor = max(living, key=lambda item: item.insanity + item.exhaustion * 0.45 - item.trust_leader * 0.2)
+        summary_text, summary_color = game.social_summary_text(survivor)
+        game.trigger_survivor_bark(survivor, summary_text, summary_color, duration=2.8)
         return
     stressed = max(living, key=lambda item: item.insanity + item.exhaustion * 0.4)
     game.trigger_survivor_bark(stressed, game.random.choice(game.survivor_bark_options(stressed))[0], PALETTE["muted"], duration=2.4)

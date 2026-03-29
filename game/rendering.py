@@ -99,6 +99,11 @@ class RenderMixin:
         self.draw_particles(shake_offset)
         self.draw_fog(shake_offset)
         self.draw_lighting()
+        if self.player.hurt_flash > 0:
+            hurt_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            alpha = int(92 * clamp(self.player.hurt_flash / 0.42, 0, 1))
+            hurt_overlay.fill((138, 28, 24, alpha))
+            self.screen.blit(hurt_overlay, (0, 0))
         self.draw_map_fog(shake_offset)
         if self.scenes.is_gameplay():
             self.draw_hud()
@@ -654,7 +659,7 @@ class RenderMixin:
             elif building.kind == "torre":
                 self.draw_watchtower(pos)
             elif building.kind == "horta":
-                self.draw_garden_plot(pos)
+                self.draw_garden_plot(pos, ready=self.garden_is_ready(building))
             elif building.kind == "anexo":
                 self.draw_workshop_annex(pos)
             elif building.kind == "serraria":
@@ -745,7 +750,7 @@ class RenderMixin:
         pygame.draw.circle(glow, (236, 182, 92, 34), (13, 13), 10)
         self.screen.blit(glow, Vector2(lantern) - Vector2(13, 13))
 
-    def draw_garden_plot(self, pos: Vector2) -> None:
+    def draw_garden_plot(self, pos: Vector2, *, ready: bool = True) -> None:
         rect = pygame.Rect(0, 0, 54, 34)
         rect.center = (int(pos.x), int(pos.y))
         pygame.draw.rect(self.screen, (94, 74, 46), rect, border_radius=8)
@@ -755,11 +760,14 @@ class RenderMixin:
         for row in range(3):
             y = rect.y + 8 + row * 8
             pygame.draw.line(self.screen, (128, 95, 58), (rect.x + 4, y), (rect.right - 4, y), 2)
+        stem_color = (62, 116, 64) if ready else (88, 92, 76)
+        leaf_light = (106, 162, 82) if ready else (118, 122, 96)
+        leaf_dark = (88, 148, 74) if ready else (96, 102, 82)
         for index, offset in enumerate((-16, -5, 8, 19)):
             sprout = pos + Vector2(offset, (-4, 2, 5, -1)[index])
-            pygame.draw.line(self.screen, (62, 116, 64), sprout + Vector2(0, 10), sprout, 2)
-            pygame.draw.circle(self.screen, (106, 162, 82), sprout + Vector2(-2, -2), 3)
-            pygame.draw.circle(self.screen, (88, 148, 74), sprout + Vector2(2, -1), 3)
+            pygame.draw.line(self.screen, stem_color, sprout + Vector2(0, 10), sprout, 2)
+            pygame.draw.circle(self.screen, leaf_light, sprout + Vector2(-2, -2), 3)
+            pygame.draw.circle(self.screen, leaf_dark, sprout + Vector2(2, -1), 3)
         bucket = pygame.Rect(0, 0, 10, 10)
         bucket.center = (int(pos.x + 24), int(pos.y + 10))
         pygame.draw.rect(self.screen, (96, 108, 118), bucket, border_radius=3)
@@ -1165,10 +1173,14 @@ class RenderMixin:
                 if getattr(zombie, "is_boss", False):
                     aura = pygame.Surface((220, 220), pygame.SRCALPHA)
                     center = Vector2(aura.get_width() / 2, aura.get_height() / 2)
-                    glow_radius = int(entity.radius * 2.8)
+                    glow_radius = int(entity.radius * (2.8 + getattr(zombie, "enrage_level", 0) * 0.35))
                     aura_center = (int(center.x), int(center.y))
-                    pygame.draw.circle(aura, (*zombie.boss_accent, 34), aura_center, glow_radius)
-                    pygame.draw.circle(aura, (*zombie.boss_body, 76), aura_center, int(entity.radius * 1.9), 3)
+                    outer_alpha = 34 + getattr(zombie, "enrage_level", 0) * 16
+                    ring_alpha = 76 + getattr(zombie, "enrage_level", 0) * 22
+                    pygame.draw.circle(aura, (*zombie.boss_accent, outer_alpha), aura_center, glow_radius)
+                    pygame.draw.circle(aura, (*zombie.boss_body, ring_alpha), aura_center, int(entity.radius * 1.9), 3)
+                    if getattr(zombie, "visual_state", "") == "enraged":
+                        pygame.draw.circle(aura, (*PALETTE["danger_soft"], 92), aura_center, int(entity.radius * 2.4), 2)
                     self.screen.blit(aura, pos - center)
                     self.draw_character(
                         pos,
@@ -1205,6 +1217,25 @@ class RenderMixin:
                     elif getattr(zombie, "variant", "walker") == "raider":
                         body = (118, 120, 88)
                         accent = (72, 58, 40)
+                    visual_state = getattr(zombie, "visual_state", "")
+                    if visual_state == "charging":
+                        streak = pygame.Surface((120, 120), pygame.SRCALPHA)
+                        streak_center = Vector2(60, 60)
+                        facing = getattr(zombie, "facing", Vector2(1, 0))
+                        for spread in (-16, 0, 16):
+                            start = streak_center - facing * 8 + facing.rotate(spread) * 12
+                            end = streak_center - facing * 34 + facing.rotate(spread) * 22
+                            pygame.draw.line(streak, (*PALETTE["danger_soft"], 110), start, end, 3)
+                        self.screen.blit(streak, pos - streak_center)
+                    elif visual_state == "howling":
+                        howl = pygame.Surface((140, 140), pygame.SRCALPHA)
+                        pygame.draw.circle(howl, (*PALETTE["danger_soft"], 80), (70, 70), int(entity.radius * 2.1), 2)
+                        pygame.draw.circle(howl, (*accent, 64), (70, 70), int(entity.radius * 2.8), 2)
+                        self.screen.blit(howl, pos - Vector2(70, 70))
+                    elif visual_state == "slamming":
+                        slam = pygame.Surface((160, 160), pygame.SRCALPHA)
+                        pygame.draw.circle(slam, (*PALETTE["danger"], 84), (80, 80), int(entity.radius * 2.4), 3)
+                        self.screen.blit(slam, pos - Vector2(80, 80))
                     zombie_expression = "agressivo" if getattr(zombie, "variant", "walker") in {"runner", "raider", "howler"} else "vazio"
                     self.draw_character(pos, body, accent, entity.radius, None, zombie=True, expression=zombie_expression)
                     if getattr(zombie, "weapon_name", ""):
@@ -1486,9 +1517,10 @@ class RenderMixin:
             pos = self.world_to_screen(mote.pos) + shake_offset
             if pos.x < -220 or pos.x > SCREEN_WIDTH + 220 or pos.y < -220 or pos.y > SCREEN_HEIGHT + 220:
                 continue
+            alpha = int(clamp(mote.alpha * factor, 0, 255))
             pygame.draw.circle(
                 fog_surface,
-                (*PALETTE["fog"], int(mote.alpha * factor)),
+                (*PALETTE["fog"], alpha),
                 (int(pos.x), int(pos.y)),
                 int(mote.radius),
             )
@@ -1513,7 +1545,8 @@ class RenderMixin:
             fog_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             self.map_fog_overlay_surface = fog_overlay
         fog_strength = clamp(float(self.runtime_settings.get("fog_strength", 1.0)), 0.2, 1.25)
-        fog_overlay.fill((0, 0, 0, int(224 * fog_strength)))
+        fog_alpha = int(clamp(224 * fog_strength, 0, 255))
+        fog_overlay.fill((0, 0, 0, fog_alpha))
 
         for center, radius in self.visible_fog_reveals(view_rect):
             self.carve_map_visibility(fog_overlay, self.world_to_screen(center), radius)

@@ -782,13 +782,13 @@ class WorldMixin:
 
     def create_build_recipes(self) -> list[dict[str, object]]:
         return [
-            {"kind": "barraca", "label": "Barraca", "wood": 6, "scrap": 1, "size": 34, "hint": "+2 camas"},
-            {"kind": "torre", "label": "Torre", "wood": 9, "scrap": 5, "size": 28, "hint": "vigia especializado"},
-            {"kind": "horta", "label": "Horta", "wood": 4, "scrap": 1, "size": 30, "hint": "mais comida"},
-            {"kind": "anexo", "label": "Anexo", "wood": 8, "scrap": 6, "size": 32, "hint": "reforca barricadas"},
-            {"kind": "serraria", "label": "Serraria", "wood": 8, "scrap": 3, "size": 34, "hint": "toras viram tabuas"},
-            {"kind": "cozinha", "label": "Cozinha", "wood": 7, "scrap": 3, "size": 34, "hint": "refeicoes em lote"},
-            {"kind": "enfermaria", "label": "Enfermaria", "wood": 7, "scrap": 5, "size": 34, "hint": "cura e remedios"},
+            {"kind": "barraca", "label": "Barraca", "wood": 5, "scrap": 1, "size": 34, "hint": "+2 camas"},
+            {"kind": "torre", "label": "Torre", "wood": 8, "scrap": 4, "size": 28, "hint": "vigia especializado"},
+            {"kind": "horta", "label": "Horta", "wood": 3, "scrap": 1, "size": 30, "hint": "mais comida"},
+            {"kind": "anexo", "label": "Anexo", "wood": 7, "scrap": 5, "size": 32, "hint": "reforca barricadas"},
+            {"kind": "serraria", "label": "Serraria", "wood": 7, "scrap": 2, "size": 34, "hint": "toras viram tabuas"},
+            {"kind": "cozinha", "label": "Cozinha", "wood": 6, "scrap": 2, "size": 34, "hint": "refeicoes em lote"},
+            {"kind": "enfermaria", "label": "Enfermaria", "wood": 6, "scrap": 4, "size": 34, "hint": "cura e remedios"},
         ]
 
     def create_faction_standings(self) -> dict[str, float]:
@@ -859,26 +859,26 @@ class WorldMixin:
         phase = self.economy_phase_key()
         multiplier = {
             "early": 1.0,
-            "mid": 1.12,
-            "late": 1.28,
+            "mid": 1.06,
+            "late": 1.14,
         }[phase]
         wood_cost = max(1, math.ceil(int(recipe["wood"]) * multiplier))
         scrap_cost = max(0, math.ceil(int(recipe["scrap"]) * multiplier))
         return wood_cost, scrap_cost
 
     def sawmill_output(self, role: str) -> int:
-        base = 4 if role == "lenhador" else 3
+        base = 5 if role == "lenhador" else 4
         phase_bonus = {
             "early": -1,
             "mid": 0,
             "late": 1,
         }[self.economy_phase_key()]
-        return max(2, base + phase_bonus)
+        return max(3, base + phase_bonus)
 
     def cookhouse_output(self, role: str) -> int:
         base = 4 if role == "cozinheiro" else 3
         phase_bonus = {
-            "early": -1,
+            "early": 0,
             "mid": 0,
             "late": 1,
         }[self.economy_phase_key()]
@@ -900,6 +900,28 @@ class WorldMixin:
             bundle["food"] = bundle.get("food", 0) + 1
         return bundle
 
+    def garden_regrow_duration(self) -> float:
+        return {
+            "early": 38.0,
+            "mid": 31.0,
+            "late": 25.0,
+        }[self.economy_phase_key()]
+
+    def garden_is_ready(self, building: Building | None) -> bool:
+        return bool(building and building.kind == "horta" and building.work_phase <= 0.0)
+
+    def start_garden_regrow(self, building: Building) -> None:
+        if building.kind == "horta":
+            building.work_phase = self.garden_regrow_duration()
+
+    def update_buildings(self, dt: float) -> None:
+        for building in self.buildings:
+            if building.kind != "horta" or building.work_phase <= 0.0:
+                continue
+            if self.is_night:
+                continue
+            building.work_phase = max(0.0, building.work_phase - dt)
+
     def clinic_medicine_output(self) -> int:
         return 2 if self.economy_phase_key() == "late" else 1
 
@@ -907,9 +929,9 @@ class WorldMixin:
         population = 1 + len(self.living_survivors())
         phase = self.economy_phase_key()
         factor = {
-            "early": 0.48,
-            "mid": 0.82,
-            "late": 1.05,
+            "early": 0.42,
+            "mid": 0.72,
+            "late": 0.96,
         }[phase]
         floor = {
             "early": 2,
@@ -934,9 +956,9 @@ class WorldMixin:
         deficit = max(0, demand)
         if deficit > 0:
             for survivor in self.living_survivors():
-                survivor.morale = clamp(survivor.morale - deficit * 4.5, 0, 100)
-                survivor.energy = clamp(survivor.energy - deficit * 3.0, 0, 100)
-                self.adjust_trust(survivor, -deficit * 1.2)
+                survivor.morale = clamp(survivor.morale - deficit * 3.8, 0, 100)
+                survivor.energy = clamp(survivor.energy - deficit * 2.5, 0, 100)
+                self.adjust_trust(survivor, -deficit * 1.0)
         return used_meals, used_food, deficit
 
     def building_count(self, kind: str) -> int:
@@ -1047,10 +1069,11 @@ class WorldMixin:
         recipe = self.build_recipe_for(kind)
         survivor.build_request_cooldown = self.random.uniform(64.0, 92.0)
         wood_cost, scrap_cost = self.build_cost_for(kind)
-        self.trigger_survivor_bark(survivor, f"Chefe, precisamos de {str(recipe['label']).lower()}.", PALETTE["accent_soft"], duration=3.0)
+        bark_text, reason = self.contextual_build_request_reason(survivor, kind)
+        self.trigger_survivor_bark(survivor, bark_text, PALETTE["accent_soft"], duration=3.0)
         self.add_chat_message(
             survivor.name,
-            f"acha que a base precisa de {str(recipe['label']).lower()}. Custo: {wood_cost} tabuas e {scrap_cost} sucata.",
+            f"acha que a base precisa de {str(recipe['label']).lower()} porque {reason}. Custo: {wood_cost} tabuas e {scrap_cost} sucata.",
             PALETTE["accent_soft"],
             source="npc",
         )
@@ -1401,13 +1424,13 @@ class WorldMixin:
         return len(self.camp_sleep_slots())
 
     def expansion_cost(self) -> tuple[int, int]:
-        base_logs = 9 + self.camp_level * 6
-        base_scrap = 5 + self.camp_level * 4
+        base_logs = 8 + self.camp_level * 5
+        base_scrap = 4 + self.camp_level * 3
         phase = self.economy_phase_key()
         multiplier = {
             "early": 1.0,
-            "mid": 1.08,
-            "late": 1.2,
+            "mid": 1.04,
+            "late": 1.12,
         }[phase]
         return max(1, math.ceil(base_logs * multiplier)), max(1, math.ceil(base_scrap * multiplier))
 
@@ -1524,6 +1547,8 @@ class WorldMixin:
         if kind == "horta":
             if self.is_night:
                 return "Horta descansando a noite"
+            if not self.garden_is_ready(building):
+                return "Horta crescendo"
             return "E colher horta"
         if kind == "anexo":
             weakest = self.weakest_barricade()
@@ -1575,8 +1600,12 @@ class WorldMixin:
             if self.is_night:
                 self.spawn_floating_text("horta fechada", building.pos, PALETTE["muted"])
                 return False
+            if not self.garden_is_ready(building):
+                self.spawn_floating_text("ainda crescendo", building.pos, PALETTE["muted"])
+                return False
             bundle = self.garden_harvest_bundle("cozinheiro")
             stored = self.add_resource_bundle(bundle)
+            self.start_garden_regrow(building)
             self.spawn_floating_text(self.bundle_summary(stored or bundle), building.pos, PALETTE["heal"])
             self.set_event_message("A horta rendeu um pouco de folego para o estoque.", duration=4.2)
             return True
@@ -1989,6 +2018,7 @@ class WorldMixin:
         social_system.impact_burst(self, origin, color, radius=radius, shake=shake, ember_count=ember_count, smoky=smoky)
 
     def survivor_bark_options(self, survivor: Survivor) -> list[tuple[str, tuple[int, int, int]]]:
+        return social_system.survivor_bark_options(self, survivor)
         lines: list[tuple[str, tuple[int, int, int]]] = []
         crisis = self.dynamic_event_for_survivor(survivor)
         active_event = self.active_dynamic_event()
@@ -2073,6 +2103,15 @@ class WorldMixin:
 
     def rival_name(self, survivor: Survivor) -> str | None:
         return social_system.rival_name(self, survivor)
+
+    def latest_social_memory(self, survivor: Survivor, topic: str | None = None) -> dict[str, object] | None:
+        return social_system.latest_social_memory(survivor, topic)
+
+    def social_summary_text(self, survivor: Survivor) -> tuple[str, tuple[int, int, int]]:
+        return social_system.social_summary_text(self, survivor)
+
+    def contextual_build_request_reason(self, survivor: Survivor, kind: str) -> tuple[str, str]:
+        return social_system.contextual_build_request_reason(self, survivor, kind)
 
     def initialize_survivor_relationships(self) -> None:
         social_system.initialize_survivor_relationships(self)
@@ -4221,7 +4260,13 @@ class WorldMixin:
         elif self.focus_mode == "supply":
             if assigned_building and getattr(survivor, "assigned_building_kind", None) == "serraria" and self.logs >= 2 and survivor.energy > 24:
                 return ("sawmill", assigned_building)
-            if assigned_building and getattr(survivor, "assigned_building_kind", None) == "horta" and not self.is_night and survivor.energy > 24:
+            if (
+                assigned_building
+                and getattr(survivor, "assigned_building_kind", None) == "horta"
+                and not self.is_night
+                and survivor.energy > 24
+                and self.garden_is_ready(assigned_building)
+            ):
                 return ("garden", assigned_building)
             if not self.buildings_of_kind("serraria") and survivor.role in {"artesa", "lenhador"} and self.logs > 0 and survivor.energy > 24:
                 return ("roughcut", self.workshop_pos)
@@ -4342,18 +4387,18 @@ class WorldMixin:
         }
 
     def begin_night(self) -> None:
-        # As duas primeiras noites seguram a mao do jogador para ele destravar a base.
-        if self.day <= 2:
+        # As tres primeiras noites seguram mais a mao para a base destravar serraria, cozinha e leitos.
+        if self.day <= 3:
             horde_chance = 0.0
         else:
-            horde_chance = min(0.05 + (self.day - 2) * 0.025, 0.38)
+            horde_chance = min(0.04 + (self.day - 3) * 0.022, 0.32)
         self.horde_active = self.random.random() < horde_chance
         if self.day <= 2:
-            self.spawn_budget = 2 + self.day + (2 if self.horde_active else 0)
-            self.spawn_timer = 2.45
+            self.spawn_budget = 1 + self.day + (1 if self.horde_active else 0)
+            self.spawn_timer = 2.8
         else:
-            self.spawn_budget = 3 + self.day + (3 if self.horde_active else 0)
-            self.spawn_timer = 2.05
+            self.spawn_budget = 2 + self.day + (2 if self.horde_active else 0)
+            self.spawn_timer = 2.35
         self.bonfire_ember_bed = clamp(self.bonfire_ember_bed + 8, 0, 100)
         self.emit_embers(self.bonfire_pos, 20)
         self.spawn_floating_text("a floresta acordou", self.bonfire_pos, PALETTE["danger_soft"])
