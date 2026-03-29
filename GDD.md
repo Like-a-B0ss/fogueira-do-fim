@@ -6,7 +6,7 @@
 - `Genero`: survival top-down com gestao de acampamento, simulacao social e defesa contra zumbis
 - `Plataforma atual`: PC
 - `Tecnologia`: Python + `pygame`
-- `Estado do projeto`: prototipo jogavel com loop completo, mundo procedural, IA de moradores, eventos dinamicos, clima dinamico e progressao de base
+- `Estado do projeto`: vertical slice jogavel com loop completo, mundo procedural, IA de moradores, clima dinamico, audio procedural, combate funcional e progressao de base
 
 ## 2. High Concept
 
@@ -25,7 +25,7 @@ O diferencial do jogo esta na mistura de:
 
 O jogo quer entregar a fantasia de:
 
-- liderar uma sociedade frágil no limite
+- liderar uma sociedade fragil no limite
 - segurar um acampamento que cresce aos poucos
 - improvisar sob pressao
 - decidir quem proteger, onde investir e quando arriscar
@@ -38,11 +38,12 @@ O jogo quer entregar a fantasia de:
 Cada morador tem:
 
 - papel funcional
-- traços
-- cansaço
+- tracos
+- cansaco
 - insanidade
 - confianca no lider
 - relacoes com outros moradores
+- memoria social de eventos, ordens e conflitos
 
 O objetivo e fazer o acampamento parecer um grupo real, e nao apenas unidades de coleta.
 
@@ -62,6 +63,7 @@ O acampamento comeca pequeno e se expande em niveis. A base ganha:
 - mais espaco
 - edificios especializados
 - mais area util para circular, construir e respirar melhor dentro da clareira
+- melhor leitura visual do chao da base, com terra batida e trilhas internas
 
 ### 4.4 Mundo Hostil e Procedural
 
@@ -75,6 +77,7 @@ O mundo tambem precisa se comunicar pelo ceu, pela luz e pelo som:
 - dias nublados, vento e chuva fina alterando a leitura da floresta
 - fogueira ganhando mais presenca quando a escuridao e o mau tempo apertam
 - neblina, penumbra e audio respondendo ao clima
+- trilha procedural com camadas de terror e presenca de zumbis na mata
 
 ### 4.6 Escolha com Consequencia
 
@@ -83,6 +86,15 @@ Eventos dinamicos e faccoes colocam o jogador em decisoes morais e praticas:
 - salvar ou negar abrigo
 - ceder ou impor
 - defender a base ou acompanhar uma expedicao
+
+### 4.7 Leitura e Feedback
+
+O jogo precisa comunicar perigo, progresso e estado emocional com clareza:
+
+- feedback visual de dano no combate
+- prompts contextuais consistentes
+- leitura de prontidao de estruturas
+- resposta visivel da sociedade e do mundo as decisoes do lider
 
 ## 5. Publico-Alvo
 
@@ -106,7 +118,7 @@ O jogo comeca com:
 - acampamento central
 - poucos moradores
 - oficina, fogao, radio e fogueira
-- estoque inicial limitado
+- estoque inicial limitado, mas suficiente para o primeiro ciclo
 
 ### 6.2 Meio
 
@@ -218,6 +230,7 @@ Os focos funcionam como prioridade, nao como ordem absoluta. Necessidades critic
 - serraria -> `tabuas` em escala
 - insumos + combustivel -> `refeicoes`
 - ervas + sucata -> `remedios`
+- horta -> lote pequeno de comida e ervas, seguido de tempo de crescimento
 
 O lider tambem pode operar estruturas chave manualmente para acelerar a base quando a IA nao da conta.
 
@@ -247,7 +260,7 @@ Isso ajuda a criar gargalo, planejamento e progressao.
 
 - `Barraca`: camas extras
 - `Torre`: vigia especializado
-- `Horta`: gera comida/ervas
+- `Horta`: gera comida e ervas quando madura; entra em regrowth apos colheita
 - `Anexo`: reforca manutencao e reparo
 - `Serraria`: transforma toras em tabuas
 - `Cozinha`: produz refeicoes
@@ -260,7 +273,7 @@ Estruturas que o lider pode usar manualmente:
 - `Oficina`: corta algumas tabuas antes da serraria
 - `Serraria`: processa toras em tabuas
 - `Cozinha`: monta refeicoes
-- `Horta`: colhe um pequeno lote
+- `Horta`: colhe um pequeno lote quando pronta
 - `Anexo`: vira reparo rapido na linha defensiva
 - `Torre`: dispara contra zumbis proximos
 - `Enfermaria`: trata ferimentos ou prepara remedios
@@ -278,6 +291,7 @@ Moradores agora podem:
 - detectar necessidade da base
 - comentar essa necessidade no historico social/chat
 - sugerir prioridades para o lider sem posicionar obra no chao
+- justificar melhor o pedido conforme o contexto da base
 
 ## 12. Acampamento
 
@@ -297,7 +311,7 @@ Elementos estruturais:
 - fogueira
 - barracas
 - estoque
-- palicada/barricadas
+- palicada e barricadas
 
 Regras importantes atuais:
 
@@ -305,6 +319,7 @@ Regras importantes atuais:
 - expandir a base nao gera barracas automaticamente
 - a linha defensiva preserva upgrades de spikes quando a base cresce
 - a expansao reposiciona a defesa para o novo tamanho sem resetar o progresso
+- a base possui chao batido mais legivel no centro, com trilhas internas entre estruturas
 
 ## 13. Fogueira
 
@@ -330,7 +345,7 @@ Toras sustentam melhor a brasa; tabuas servem como reforco rapido.
 
 ## 14. Moradores
 
-### 14.1 Papéis
+### 14.1 Papeis
 
 - `Lenhador`
 - `Vigia`
@@ -343,7 +358,7 @@ Toras sustentam melhor a brasa; tabuas servem como reforco rapido.
 
 - nome
 - role
-- traços
+- tracos
 - vida
 - energia
 - fome
@@ -352,6 +367,7 @@ Toras sustentam melhor a brasa; tabuas servem como reforco rapido.
 - insanidade
 - confianca no lider
 - relacoes sociais
+- memorias sociais recentes
 - atribuicao de cama
 - atribuicao de edificio
 
@@ -369,6 +385,7 @@ Os moradores podem:
 - socializar
 - defender o acampamento
 - sugerir necessidades da base pelo chat
+- revelar neblina do mapa quando exploram ou se deslocam vivos pela base e arredores
 
 ## 15. Sistema Social
 
@@ -379,6 +396,7 @@ A confianca sobe com:
 - presenca do jogador
 - boas decisoes
 - cuidado com a base
+- resposta humana a crises e pedidos
 
 A confianca cai com:
 
@@ -386,6 +404,7 @@ A confianca cai com:
 - crises mal resolvidas
 - pressao
 - escolhas duras demais
+- ordens recusadas ou clima social ruim
 
 ### 15.2 Relacoes Internas
 
@@ -395,15 +414,38 @@ Moradores acumulam:
 - rivalidade
 - feudos
 - conflitos
+- reconciliacoes ocasionais
 
-### 15.3 Insanidade e Exaustao
+### 15.3 Memoria Social
+
+Os moradores registram lembrancas sociais de:
+
+- eventos de crise
+- pedidos de abrigo
+- interacoes com faccoes
+- ordens aceitas ou recusadas
+- amizades e desentendimentos
+
+Essas memorias afetam falas, obediencia, clima do grupo e a forma como respondem ao lider.
+
+### 15.4 Consequencias Sistêmicas
+
+O sistema social influencia:
+
+- falas contextuais
+- resumo emocional nos dialogos
+- chance de aceitar melhor uma diretriz
+- formacao de pares que trabalham melhor juntos
+- desgaste quando rivais convivem perto demais
+
+### 15.5 Insanidade e Exaustao
 
 Esses sistemas empurram a sociedade para estados mais instaveis, como:
 
 - rondar a base
 - dormir em horarios criticos
 - quebrar moral
-- entrar em fuga/desercao
+- entrar em fuga ou desercao
 
 ## 16. Eventos Dinamicos
 
@@ -426,7 +468,7 @@ Cada evento tem:
 - alvo
 - consequencia de sucesso ou falha
 
-Eventos de `abrigo` e `faccao` agora tambem colocam um visitante fisico no mapa, surgindo em um ponto aleatorio nas laterais do acampamento.
+Eventos de `abrigo` e `faccao` tambem colocam um visitante fisico no mapa, surgindo em um ponto aleatorio nas laterais do acampamento.
 
 ## 17. Faccoes
 
@@ -463,6 +505,8 @@ O lider:
 - ataca em curto alcance
 - corta arvores com o mesmo golpe base
 - reage a zumbis perto da base e da exploracao
+- aplica stagger e knockback diferentes conforme o tipo de inimigo
+- recebe feedback visual de dano para reforcar leitura de perigo
 
 ### 18.2 Moradores
 
@@ -487,11 +531,21 @@ Tipos atuais:
 Comportamentos atuais:
 
 - rondar acampamento
-- atacar barricada
-- perseguir alvo
+- atacar barricada quando realmente proximos da base
+- perseguir alvo na floresta e no entorno
 - chamar reforcos
 - surgir na floresta
 - liderar hordas
+- executar comportamentos mais fortes por variante, como charge, slam, grito e furia de boss
+
+### 18.4 Bosses de Zona
+
+Chefes territoriais:
+
+- defendem sua regiao
+- engajam o jogador quando encontrados na selva
+- ficam mais perigosos conforme perdem vida
+- servem como marco de progressao e risco regional
 
 ## 19. Mundo Procedural
 
@@ -543,7 +597,7 @@ Efeitos atuais:
 - afeta audio e leitura do ambiente
 - adiciona peso em expedicoes e riscos secundarios
 
-A passagem entre dia e noite agora usa um fator continuo de luminosidade, deixando amanhecer e entardecer mais suaves.
+A passagem entre dia e noite usa um fator continuo de luminosidade, deixando amanhecer e entardecer mais suaves.
 
 ## 20. Expedicoes
 
@@ -569,13 +623,14 @@ Mostra:
 - leitura atmosferica do momento pela luz e neblina
 - objetivos do chefe
 - sociedade
-- historico social/chat
+- historico social e chat
 - modo compacto e modo completo para aliviar a tela durante exploracao e combate
 
 Tambem ha:
 
 - prompts contextuais que priorizam o alvo sob o mouse
 - painel do chefe com vida, folego e contexto de descanso
+- feedback de dano no combate
 - confirmacao de saida com salvar, sair sem salvar ou cancelar
 
 ### 21.2 Tela Inicial
@@ -597,6 +652,7 @@ O painel dos moradores agora tem:
 - scroll
 - cards compactos
 - clique para expandir detalhes
+- leitura melhor do estado emocional e social
 
 ### 21.4 Apresentacao dos Eventos
 
@@ -619,6 +675,8 @@ O audio atual e procedural, sem depender de arquivos externos. Ja existem:
 - ambiencia de fogueira
 - clima de horda
 - resposta sonora para nublado, vento e chuva
+- camadas de terror mais presentes a noite
+- zumbis distantes e presenca hostil na mata
 
 ## 23. Arte e Direcao Visual
 
@@ -630,6 +688,7 @@ Direcao atual:
 - contraste entre calor do acampamento e frieza do exterior
 - neblina e iluminacao dinamicas
 - clima visual com nuvens, chuva e variacao gradual de luminosidade
+- base com centro de terra batida e leitura mais marcada dos caminhos internos
 
 ## 24. Cenas e Fluxo
 
@@ -666,7 +725,8 @@ Detalhes tecnicos atuais:
 - Python 3 + `pygame`
 - renderizacao top-down sem assets externos obrigatorios
 - audio sintetizado em runtime
-- save/load manual por arquivo
+- save e load manual por arquivo
+- neblina do mapa com cache para aliviar custo de render
 - estrutura modular com helpers de HUD, UI, dialogo e sistema social
 
 Modulos auxiliares:
@@ -682,12 +742,13 @@ Modulos auxiliares:
 - `world.py` ainda esta grande
 - varias mecanicas profundas dependem mais de tuning do que de implementacao nova
 - falta playtest manual prolongado para curva de dificuldade e progressao
+- balanceamento de combate, economia e crescimento social ainda precisa de iteracao longa
 
 ## 28. Oportunidades de Evolucao
 
 - comercio entre faccoes
 - ataques humanos
-- memoria longa de decisoes morais
+- memoria longa de decisoes morais em escala de campanha
 - mais tipos de chefe e mutacoes
 - craft mais profundo
 - agricultura e doencas mais sistemicas
@@ -696,7 +757,7 @@ Modulos auxiliares:
 
 ## 29. Resumo do Estado Atual
 
-`Fogueira do Fim` ja funciona como um survival top-down sistêmico com:
+`Fogueira do Fim` ja funciona como um survival top-down sistemico com:
 
 - base expansivel
 - moradores com IA
@@ -709,5 +770,7 @@ Modulos auxiliares:
 - exploracao procedural
 - clima dinamico
 - clima social
+- audio procedural atmosferico
+- combate com variantes mais legiveis
 
-O projeto ja passou da fase de prototipo visual simples e hoje se posiciona como uma simulacao de acampamento survival com combate, lideranca e mundo procedural.
+O projeto ja passou da fase de prototipo visual simples e hoje se posiciona como uma simulacao de acampamento survival com combate, lideranca, tensao atmosferica e mundo procedural.
