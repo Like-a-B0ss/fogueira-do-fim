@@ -177,10 +177,12 @@ O jogo abre para:
 - `Mouse`: orientar ataque e interagir com a interface
 - `Clique esquerdo` / `Espaco`: atacar
 - `E`: interagir
+- `Botao direito`: interacao contextual no acampamento, quando o alvo esta ao alcance
 - `Q`: acao alternativa ou decisao dura
 - `B`: abrir menu de construcao
 - `1-7`: selecionar estrutura no menu de build
 - `1-4`: definir foco da comunidade fora do menu de build
+- `Tab`: alternar entre HUD compacta e HUD completa
 - `F5`: salvar
 - `F9`: carregar
 - `Esc`: sair / voltar / abrir confirmacao
@@ -259,9 +261,8 @@ Isso ajuda a criar gargalo, planejamento e progressao.
 Moradores agora podem:
 
 - detectar necessidade da base
-- pedir uma construcao ao chefe
-- esperar aprovacao
-- levantar a obra por conta propria depois da autorizacao
+- comentar essa necessidade no historico social/chat
+- sugerir prioridades para o lider sem posicionar obra no chao
 
 ## 12. Acampamento
 
@@ -346,7 +347,7 @@ Os moradores podem:
 - socializar
 - defender o acampamento
 - pedir construcoes
-- levantar construcoes aprovadas
+- sugerir necessidades da base pelo chat
 
 ## 15. Sistema Social
 
@@ -540,6 +541,7 @@ Mostra:
 - objetivos do chefe
 - sociedade
 - historico social/chat
+- modo compacto e modo completo para aliviar a tela durante exploracao e combate
 
 ### 21.2 Tela Inicial
 
@@ -549,7 +551,7 @@ Possui:
 - simulacao viva ao fundo
 - novo jogo
 - continuar
-- configuracoes
+- configuracoes em aba separada quando o jogador clica no botao
 - saida
 - sequencia de dicas
 
