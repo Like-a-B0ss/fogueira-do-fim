@@ -1,0 +1,287 @@
+from __future__ import annotations
+
+import pygame
+
+from ..entities import Survivor
+from ..core.config import FOCUS_LABELS, PALETTE, clamp
+
+
+def draw_chat_panel(game) -> None:
+    """Desenha o painel inferior de conversa e historico do acampamento."""
+    layout = game.chat_panel_layout()
+    panel = layout["panel"]
+    viewport = layout["viewport"]
+    game.draw_panel(panel)
+    survivor = game.active_dialog_survivor()
+    if survivor:
+        title = game.heading_font.render(f"Falando com {survivor.name}", True, PALETTE["text"])
+        subtitle_base = f"{survivor.role}  |  {survivor.primary_trait()}  |  estado {survivor.state_label}"
+        subtitle_max = panel.width - title.get_width() - 54
+        subtitle_text = game.fit_text_to_width(game.ui_small_font, subtitle_base, max(180, subtitle_max))
+    else:
+        title = game.heading_font.render("Vozes da Clareira", True, PALETTE["text"])
+        subtitle_text = game.fit_text_to_width(
+            game.ui_small_font,
+            "Aproxime-se de um morador e aperte E para conversar direto.",
+            panel.width - title.get_width() - 54,
+        )
+    subtitle = game.ui_small_font.render(subtitle_text, True, PALETTE["muted"])
+    game.screen.blit(title, (panel.x + 14, panel.y + 8))
+    subtitle_x = panel.x + 20 + title.get_width() + 14
+    game.screen.blit(subtitle, (subtitle_x, panel.y + 13))
+
+    previous_clip = game.screen.get_clip()
+    game.screen.set_clip(viewport)
+    y = viewport.y - int(game.chat_max_scroll() - game.chat_scroll)
+    for entry in game.chat_messages:
+        speaker = str(entry.get("speaker", "radio"))
+        label = f"{speaker}: {entry.get('text', '')}"
+        color = tuple(entry.get("color", PALETTE["text"]))
+        lines = game.wrap_text_lines(game.ui_small_font, label, viewport.width - 18)
+        line_height = game.ui_small_font.get_linesize()
+        block_height = len(lines) * line_height + max(0, len(lines) - 1) * 2 + 8
+        if y + block_height >= viewport.y - 8 and y <= viewport.bottom + 8:
+            for index, line in enumerate(lines):
+                rendered = game.ui_small_font.render(line, True, color if index == 0 else PALETTE["muted"])
+                game.screen.blit(rendered, (viewport.x + 4, y + index * (line_height + 2)))
+        y += block_height + 4
+    game.screen.set_clip(previous_clip)
+    pygame.draw.rect(game.screen, (18, 22, 24), viewport, 1, border_radius=10)
+
+    scroll_track = layout["scrollbar"]
+    pygame.draw.rect(game.screen, (28, 36, 38), scroll_track, border_radius=6)
+    max_scroll = game.chat_max_scroll()
+    if max_scroll > 0:
+        total_height = max(viewport.height, game.chat_content_height())
+        thumb_height = max(26, int(viewport.height * (viewport.height / max(1, total_height))))
+        thumb_range = max(0, scroll_track.height - thumb_height)
+        thumb_ratio = game.chat_scroll / max_scroll if max_scroll > 0 else 0.0
+        thumb = pygame.Rect(
+            scroll_track.x,
+            scroll_track.y + int(thumb_range * thumb_ratio),
+            scroll_track.width,
+            thumb_height,
+        )
+        pygame.draw.rect(game.screen, PALETTE["accent_soft"], thumb, border_radius=6)
+
+    mouse_pos = game.input_state.mouse_screen
+    if survivor:
+        for rect, option in zip(layout["buttons"], game.conversation_options_for_survivor(survivor)):
+            hover = rect.collidepoint(mouse_pos)
+            pygame.draw.rect(game.screen, (42, 54, 58) if hover else (30, 38, 41), rect, border_radius=9)
+            pygame.draw.rect(game.screen, PALETTE["accent_soft"] if hover else PALETTE["ui_line"], rect, 1, border_radius=9)
+            label = game.ui_small_font.render(
+                game.fit_text_to_width(game.ui_small_font, str(option["label"]), rect.width - 10),
+                True,
+                PALETTE["text"],
+            )
+            game.screen.blit(label, label.get_rect(center=rect.center))
+    else:
+        hint = game.ui_small_font.render(
+            "O historico do campo segue aqui. A conversa e aberta morador por morador.",
+            True,
+            PALETTE["muted"],
+        )
+        game.screen.blit(hint, (panel.x + 16, panel.bottom - 28))
+
+
+def draw_survivor_card(
+    game,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    survivor: Survivor,
+) -> None:
+    rect = pygame.Rect(x, y, width, height)
+    selected = getattr(game, "society_selected_survivor_name", None) == survivor.name
+    bg = PALETTE["ui_panel"] if survivor.is_alive() else (42, 26, 26)
+    if getattr(survivor, "on_expedition", False):
+        bg = (30, 42, 54)
+    elif survivor.conflict_cooldown > 0:
+        bg = (58, 34, 34)
+    elif survivor.exhaustion > 72:
+        bg = (44, 38, 28)
+    elif getattr(survivor, "insanity", 0.0) > 70:
+        bg = (56, 46, 24)
+    pygame.draw.rect(game.screen, bg, rect, border_radius=12)
+    pygame.draw.rect(
+        game.screen,
+        PALETTE["accent_soft"] if selected else PALETTE["ui_line"],
+        rect,
+        1,
+        border_radius=12,
+    )
+    avatar_y = y + 22 if selected else y + height // 2
+    pygame.draw.circle(game.screen, survivor.color, (x + 18, avatar_y), 8)
+    name_text = game.fit_text_to_width(game.body_font, survivor.name, width - 120)
+    name = game.body_font.render(name_text, True, PALETTE["text"])
+    role_label = f"{survivor.role} / {survivor.primary_trait()}"
+    if getattr(survivor, "assigned_building_kind", None) == "torre":
+        role_label += " / torre"
+    elif getattr(survivor, "assigned_building_kind", None) == "horta":
+        role_label += " / horta"
+    elif getattr(survivor, "assigned_building_kind", None) == "anexo":
+        role_label += " / anexo"
+    elif getattr(survivor, "assigned_building_kind", None) == "serraria":
+        role_label += " / serraria"
+    elif getattr(survivor, "assigned_building_kind", None) == "cozinha":
+        role_label += " / cozinha"
+    elif getattr(survivor, "assigned_building_kind", None) == "enfermaria":
+        role_label += " / enfermaria"
+    role = game.ui_small_font.render(game.fit_text_to_width(game.ui_small_font, role_label, width - 138), True, PALETTE["muted"])
+    state_label = survivor.state_label
+    if getattr(survivor, "on_expedition", False):
+        state_label = "em expedicao"
+    elif survivor.conflict_cooldown > 0:
+        rival = game.rival_name(survivor)
+        state_label = f"briga com {rival.lower()}" if rival else "apos briga"
+    elif getattr(survivor, "insanity", 0.0) > 82:
+        state_label = "quase rompendo"
+    elif getattr(survivor, "insanity", 0.0) > 68:
+        state_label = "rondando a base"
+    elif survivor.exhaustion > 72:
+        state_label = "exausto"
+    elif survivor.trust_leader < 32:
+        state_label = "desconfiado"
+    state = game.ui_small_font.render(
+        game.fit_text_to_width(game.ui_small_font, state_label if survivor.is_alive() else "perdido", width - 116),
+        True,
+        PALETTE["danger_soft"] if not survivor.is_alive() else PALETTE["text"],
+    )
+    game.screen.blit(name, (x + 34, y + 4))
+    game.screen.blit(role, (x + 34, y + 22))
+    game.screen.blit(state, (x + 34, y + 38))
+
+    toggle_text = "-" if selected else "+"
+    toggle = game.body_font.render(toggle_text, True, PALETTE["muted"])
+    game.screen.blit(toggle, toggle.get_rect(topright=(rect.right - 12, rect.y + 4)))
+
+    if not selected:
+        summary = f"{survivor.state_label}  |  moral {int(survivor.morale)}"
+        summary_surface = game.small_font.render(game.fit_text_to_width(game.small_font, summary, width - 112), True, PALETTE["muted"])
+        game.screen.blit(summary_surface, (x + 34, y + 52))
+        return
+
+    detail_top = y + 64
+    detail_left = x + 16
+    bar_width = width - 32
+
+    def draw_inline_bar(offset_y: int, label: str, ratio: float, color: tuple[int, int, int], value_text: str) -> None:
+        label_surface = game.small_font.render(label, True, PALETTE["muted"])
+        value_surface = game.small_font.render(value_text, True, PALETTE["text"])
+        bar_y = detail_top + offset_y
+        game.screen.blit(label_surface, (detail_left, bar_y))
+        game.screen.blit(value_surface, (rect.right - 16 - value_surface.get_width(), bar_y))
+        track = pygame.Rect(detail_left, bar_y + 14, bar_width, 10)
+        pygame.draw.rect(game.screen, (18, 22, 24), track, border_radius=6)
+        fill = max(6, int(track.width * clamp(ratio, 0, 1))) if ratio > 0 else 0
+        if fill > 0:
+            pygame.draw.rect(game.screen, color, (track.x, track.y, fill, track.height), border_radius=6)
+        pygame.draw.rect(game.screen, PALETTE["ui_line"], track, 1, border_radius=6)
+
+    draw_inline_bar(0, "Vida", survivor.health / max(1.0, survivor.max_health), PALETTE["danger_soft"], f"{int(survivor.health)}/{int(survivor.max_health)}")
+    draw_inline_bar(30, "Energia", survivor.energy / 100, PALETTE["energy"], f"{int(survivor.energy)}")
+    draw_inline_bar(60, "Moral", survivor.morale / 100, PALETTE["morale"], f"{int(survivor.morale)}")
+    draw_inline_bar(90, "Confianca", survivor.trust_leader / 100, PALETTE["accent_soft"], f"{int(survivor.trust_leader)}")
+
+
+def current_objectives(game) -> list[str]:
+    """Resume as prioridades imediatas do chefe conforme o estado do mundo."""
+    weakest = game.weakest_barricade_health()
+    unresolved = len(game.unresolved_interest_points())
+    active_event = game.active_dynamic_event()
+    current_region = game.current_named_region()
+    directives = []
+    if active_event:
+        directives.append(f"Crise ativa: {active_event.label}")
+        if active_event.kind == "doenca":
+            directives.append("Aproxime-se do doente com E e use a enfermaria para segurar a febre.")
+        elif active_event.kind == "incendio":
+            directives.append("Corra ate o foco do incendio e interaja antes que a estrutura ceda.")
+        elif active_event.kind == "alarme":
+            directives.append("Chegue na cerca que tremeu e use E para segurar a linha antes do rombo.")
+        elif active_event.kind == "expedicao":
+            directives.append("Siga o foguete vermelho na trilha e entregue socorro antes da equipe quebrar.")
+        elif active_event.kind == "faccao":
+            directives.append("E escolhe a saida humana. Q escolhe a saida dura e pragmatica.")
+        elif active_event.kind == "abrigo":
+            directives.append("Va ate o limite da mata e decida se ha espaco para acolher o forasteiro.")
+        else:
+            directives.append("Encontre o morador em crise e use a sua presenca para impedir a perda.")
+        return directives[:3]
+    if game.active_expedition:
+        directives.append(game.expedition_status_text(short=False) or "A equipe esta fora da base.")
+        if any(getattr(survivor, "expedition_downed", False) for survivor in game.expedition_members()):
+            directives.append("Ha gente caida na trilha. Chegue perto e use E para por o esquadrao de pe.")
+        elif str(game.active_expedition.get("skirmish_state", "")) == "active":
+            directives.append("A coluna travou combate na trilha. Intercepte os mortos antes que a equipe quebre.")
+        elif not bool(game.active_expedition.get("escort_bonus", False)):
+            directives.append("Acompanhe a caravana ate a borda da clareira para reduzir o risco da rota.")
+    phase = game.economy_phase_key()
+    if phase == "early":
+        directives.append("Fase de escassez: segure o estoque curto e aceite que a base ainda nao produz bem.")
+    elif phase == "mid":
+        directives.append("Fase de estabilizacao: serraria, cozinha e enfermaria precisam girar todo amanhecer.")
+    else:
+        directives.append("Fase de expedicoes: a base consome mais e o mapa distante virou fonte principal.")
+    if game.bonfire_heat < 28 or game.bonfire_ember_bed < 18:
+        directives.append("Reacenda a fogueira antes que o campo fique so em brasas.")
+    else:
+        directives.append("Circule pelo campo e sustente a presenca do lider.")
+    if game.logs < 10:
+        directives.append("Derrube arvores para encher o estoque de toras antes do entardecer.")
+    elif not game.buildings_of_kind("serraria") and game.logs > 0:
+        directives.append("Use a oficina para cortar algumas tabuas e destravar a serraria.")
+    elif game.wood < 12:
+        directives.append("Passe toras pela serraria para levantar tabuas de construcao.")
+    elif current_region and current_region.get("boss_blueprint") and not current_region.get("boss_defeated"):
+        boss = game.zone_boss_for_region(tuple(current_region["key"]))
+        if boss:
+            directives.append(f"{boss.boss_name} domina a regiao. Bata, recue e nao lute cansado.")
+        else:
+            directives.append(f"{current_region['name']} guarda {current_region['boss_blueprint']['name']}. Entre com estoque pronto.")
+    if game.spare_beds() <= 0 and game.camp_level < game.max_camp_level:
+        log_cost, scrap_cost = game.expansion_cost()
+        directives.append(f"Leve {log_cost} toras e {scrap_cost} sucata para ampliar a oficina.")
+    elif game.spare_beds() > 0 and len(game.survivors) < game.total_bed_capacity():
+        directives.append("Mantenha moral e defesa altas para atrair novos moradores.")
+    elif not game.buildings_of_kind("serraria"):
+        directives.append("Corte tabuas na oficina e depois erga uma serraria para ganhar escala.")
+    elif not game.buildings_of_kind("cozinha"):
+        directives.append("Monte uma cozinha para converter insumos em refeicoes de verdade.")
+    elif not game.buildings_of_kind("enfermaria"):
+        directives.append("Levante uma enfermaria para estabilizar feridos e fabricar remedios.")
+    if unresolved > 0:
+        directives.append(f"Explore {unresolved} sinal(is) perdidos alem da nevoa do mapa.")
+    elif current_region and current_region.get("boss_defeated"):
+        directives.append("A zona atual foi limpa. Avance para nomear outra regiao e achar um novo boss.")
+    elif weakest < 55:
+        directives.append("Reforce a palicada mais ferida antes da proxima investida.")
+    elif game.average_insanity() > 62:
+        directives.append("A insanidade do grupo subiu. Fogo, comida e presenca perto das barracas viraram prioridade.")
+    elif game.average_trust() < 46:
+        directives.append("A confianca no lider caiu. Circule pelo campo e reorganize a sociedade.")
+    elif game.feud_count() > 0:
+        directives.append("Existe atrito no grupo. Mantenha comida, fogo e presenca para evitar mais brigas.")
+    elif min(game.faction_standings.values()) < -24:
+        directives.append("Uma faccao humana esta azedando com a base. Pese bem a proxima decisao moral.")
+    elif game.average_health() < 72 and game.can_treat_infirmary():
+        directives.append("Leve os feridos para a enfermaria e preserve as ervas do estoque.")
+    elif game.best_expedition_region() and not game.active_expedition and game.player.pos.distance_to(game.radio_pos) < 220:
+        directives.append(f"Use o radio para enviar uma equipe a {game.best_expedition_region()['name']}.")
+    else:
+        directives.append("Colete recursos externos para o proximo amanhecer.")
+    if game.is_night:
+        directives.append("Segure os zumbis no anel defensivo." + (" Ha uma horda ativa nesta noite." if getattr(game, "horde_active", False) else ""))
+    else:
+        directives.append(f"Defina o foco comunitario com 1-4. Atual: {FOCUS_LABELS[game.focus_mode]}.")
+    return directives[:3]
+
+
+
+
+
+
+
+

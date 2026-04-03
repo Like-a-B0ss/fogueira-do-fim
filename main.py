@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from game.session import main
+from game import main
 
 
 if __name__ == "__main__":
