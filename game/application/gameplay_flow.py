@@ -52,6 +52,9 @@ def handle_events(game: "Game") -> None:
         return
 
     if game.input_state.cancel_pressed:
+        if game.scenes.is_splash():
+            game.running = False
+            return
         if game.scenes.is_title() and game.title_settings_open:
             game.title_settings_open = False
             game.audio.play_ui("back")
@@ -71,6 +74,19 @@ def handle_events(game: "Game") -> None:
             game.open_exit_prompt()
         else:
             game.running = False
+        return
+
+    if game.scenes.is_splash():
+        if (
+            game.input_state.confirm_pressed
+            or game.input_state.interact_pressed
+            or game.input_state.attack_pressed
+            or game.input_state.alt_interact_pressed
+        ) and game.splash_elapsed >= 0.45:
+            game.splash_elapsed = game.splash_min_duration
+            game.title_intro_alpha = 0.0
+            game.scenes.change("title")
+            game.audio.play_ui("focus")
         return
 
     if game.scenes.is_title():

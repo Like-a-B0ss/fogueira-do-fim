@@ -4,6 +4,11 @@ import pygame
 
 from ..core.config import SCREEN_HEIGHT, SCREEN_WIDTH, clamp
 
+HUD_MARGIN = 18
+HUD_PANEL_GAP = 18
+HUD_SIDE_PANEL_WIDTH = 328
+HUD_LEFT_PANEL_WIDTH = 358
+
 
 def title_ui_layout(game) -> dict[str, object]:
     """Define a geometria da tela inicial em um unico lugar."""
@@ -39,7 +44,7 @@ def title_ui_layout(game) -> dict[str, object]:
 
 
 def hud_toggle_rect(_game) -> pygame.Rect:
-    return pygame.Rect(SCREEN_WIDTH // 2 + 240, 28, 28, 24)
+    return pygame.Rect(SCREEN_WIDTH // 2 + 240, HUD_MARGIN + 12, 28, 24)
 
 
 def tips_ui_layout(_game) -> dict[str, pygame.Rect]:
@@ -59,7 +64,7 @@ def tips_ui_layout(_game) -> dict[str, pygame.Rect]:
 def society_panel_layout(game) -> dict[str, pygame.Rect]:
     compact = bool(getattr(game, "hud_compact_mode", False))
     height = 92 if game.society_panel_collapsed or compact else 372
-    panel = pygame.Rect(SCREEN_WIDTH - 346, 16, 328, height)
+    panel = pygame.Rect(SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_MARGIN, HUD_MARGIN, HUD_SIDE_PANEL_WIDTH, height)
     header = pygame.Rect(panel.x + 12, panel.y + 10, panel.width - 24, 54)
     toggle = pygame.Rect(panel.right - 38, panel.y + 16, 20, 20)
     viewport = pygame.Rect(panel.x + 16, panel.y + 106, 284, max(0, panel.height - 124))
@@ -80,7 +85,9 @@ def society_card_height(game, survivor) -> int:
 
 def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
     """Centraliza a geometria do painel inferior de conversa."""
-    panel = pygame.Rect(18, SCREEN_HEIGHT - 174, max(420, SCREEN_WIDTH - 420), 156)
+    right_column_x = SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_MARGIN
+    panel_width = max(420, right_column_x - HUD_PANEL_GAP - HUD_MARGIN)
+    panel = pygame.Rect(HUD_MARGIN, SCREEN_HEIGHT - 174, panel_width, 156)
     header = pygame.Rect(panel.x + 14, panel.y + 10, panel.width - 28, 26)
     viewport = pygame.Rect(panel.x + 14, panel.y + 42, panel.width - 36, 70)
     scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)

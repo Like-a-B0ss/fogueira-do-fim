@@ -12,7 +12,18 @@ if TYPE_CHECKING:
 
 
 def update(game: "Game", dt: float) -> None:
+    if game.scenes.is_splash():
+        game.splash_elapsed += dt
+        game.splash_hint_pulse += dt
+        game.update_background_simulation(dt)
+        if game.splash_elapsed >= game.splash_min_duration:
+            game.title_intro_alpha = 0.0
+            game.scenes.change("title")
+        return
+
     if game.scenes.is_title() or game.scenes.is_tips() or game.scenes.is_game_over():
+        if game.scenes.is_title():
+            game.title_intro_alpha = min(255.0, game.title_intro_alpha + game.title_intro_speed * dt)
         game.update_background_simulation(dt)
         return
 

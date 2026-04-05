@@ -4,6 +4,7 @@ import pygame
 from pygame import Vector2
 
 from ..core.config import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH
+from ..ui.ui_helpers import HUD_MARGIN, HUD_SIDE_PANEL_WIDTH
 
 
 def draw_build_preview(game, shake_offset: Vector2) -> None:
@@ -34,7 +35,12 @@ def draw_build_preview(game, shake_offset: Vector2) -> None:
 
 def draw_build_menu(game) -> None:
     panel_height = 78 + len(game.build_recipes) * 38
-    panel = pygame.Rect(SCREEN_WIDTH - 346, SCREEN_HEIGHT - panel_height - 18, 328, panel_height)
+    panel = pygame.Rect(
+        SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_MARGIN,
+        SCREEN_HEIGHT - panel_height - HUD_MARGIN,
+        HUD_SIDE_PANEL_WIDTH,
+        panel_height,
+    )
     game.draw_panel(panel)
     title = game.heading_font.render("Menu de Construcao", True, PALETTE["text"])
     subtitle = game.small_font.render(

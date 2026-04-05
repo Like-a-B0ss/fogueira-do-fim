@@ -67,7 +67,7 @@ class Game(WorldMixin, RenderMixin):
         self.input_state = InputState()
         self.save_repository = JsonSaveGameRepository()
         self.save_codec = SaveGameCodec()
-        self.scenes = SceneManager(SceneId.GAMEPLAY if smoke_test else SceneId.TITLE)
+        self.scenes = SceneManager(SceneId.GAMEPLAY if smoke_test else SceneId.SPLASH)
 
         self.title_font = load_font(62, title=True)
         self.heading_font = load_font(24, title=True)
@@ -111,6 +111,11 @@ class Game(WorldMixin, RenderMixin):
         self.refresh_title_actions()
         self.tutorial_pages = self.create_tutorial_pages()
         self.seed_chat_log()
+        self.splash_elapsed = 0.0
+        self.splash_min_duration = 1.4
+        self.splash_hint_pulse = 0.0
+        self.title_intro_alpha = 0.0
+        self.title_intro_speed = 320.0
 
         self.player = Player(CAMP_CENTER + Vector2(20, 40))
         self.day = 1
@@ -228,7 +233,14 @@ class Game(WorldMixin, RenderMixin):
         """Sincroniza os modulos que usam largura/altura da viewport em tempo de execucao."""
         from ..core import config as config_module
         from ..rendering import hud_rendering_helpers as hud_module
+        from ..rendering import ui_build_rendering as build_rendering_module
+        from ..rendering import ui_hud_rendering as hud_rendering_module
+        from ..rendering import ui_screen_rendering as screen_rendering_module
         from ..rendering import mixin as rendering_module
+        from ..rendering import world_base_rendering as world_base_module
+        from ..rendering import world_resource_rendering as world_resource_module
+        from ..rendering import world_scenery_rendering as world_scenery_module
+        from ..rendering import world_signals_rendering as world_signals_module
         from ..ui import ui_helpers as ui_module
 
         globals()["SCREEN_WIDTH"] = int(width)
@@ -241,6 +253,20 @@ class Game(WorldMixin, RenderMixin):
         ui_module.SCREEN_HEIGHT = int(height)
         hud_module.SCREEN_WIDTH = int(width)
         hud_module.SCREEN_HEIGHT = int(height)
+        hud_rendering_module.SCREEN_WIDTH = int(width)
+        hud_rendering_module.SCREEN_HEIGHT = int(height)
+        build_rendering_module.SCREEN_WIDTH = int(width)
+        build_rendering_module.SCREEN_HEIGHT = int(height)
+        screen_rendering_module.SCREEN_WIDTH = int(width)
+        screen_rendering_module.SCREEN_HEIGHT = int(height)
+        world_base_module.SCREEN_WIDTH = int(width)
+        world_base_module.SCREEN_HEIGHT = int(height)
+        world_resource_module.SCREEN_WIDTH = int(width)
+        world_resource_module.SCREEN_HEIGHT = int(height)
+        world_scenery_module.SCREEN_WIDTH = int(width)
+        world_scenery_module.SCREEN_HEIGHT = int(height)
+        world_signals_module.SCREEN_WIDTH = int(width)
+        world_signals_module.SCREEN_HEIGHT = int(height)
         self.map_fog_overlay_surface = None
         self.map_reveal_cache = {}
 

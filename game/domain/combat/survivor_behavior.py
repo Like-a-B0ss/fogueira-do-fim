@@ -530,7 +530,7 @@ def _task_options(survivor, game: "Game") -> dict[str, float]:
     _apply_focus_mode_bonuses(options, survivor, game)
     
     # Aplicar ajustes por traits
-    _apply_trait_bonuses(options, survivor)
+    _apply_trait_bonuses(options, survivor, game)
     
     # Ajuste por role preferido
     preferred = {
@@ -609,7 +609,7 @@ def _apply_focus_mode_bonuses(options: dict[str, float], survivor, game: "Game")
         options[task] = options.get(task, 0) + bonus
 
 
-def _apply_trait_bonuses(options: dict[str, float], survivor) -> None:
+def _apply_trait_bonuses(options: dict[str, float], survivor, game: "Game") -> None:
     """Aplicar bonificadores baseado em traits."""
     trait_bonuses = {
         "corajoso": {"guard": 1.9},

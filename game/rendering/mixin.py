@@ -124,7 +124,9 @@ class RenderMixin:
         if self.exit_prompt_open and self.scenes.is_gameplay():
             ui_screen_rendering.draw_exit_prompt(self)
 
-        if self.scenes.is_title():
+        if self.scenes.is_splash():
+            ui_screen_rendering.draw_splash_screen(self)
+        elif self.scenes.is_title():
             ui_screen_rendering.draw_title_screen(self)
         elif self.scenes.is_tips():
             ui_screen_rendering.draw_tips_screen(self)

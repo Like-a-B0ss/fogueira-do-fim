@@ -5,22 +5,66 @@ import pygame
 from ..core.config import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH
 
 
+def draw_splash_screen(game) -> None:
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((4, 8, 10, 176))
+    game.screen.blit(overlay, (0, 0))
+
+    halo = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 36)
+    pygame.draw.circle(halo, (198, 134, 72, 34), center, 178)
+    pygame.draw.circle(halo, (214, 162, 92, 18), center, 248)
+    game.screen.blit(halo, (0, 0))
+
+    panel = pygame.Rect(0, 0, min(760, SCREEN_WIDTH - 120), 300)
+    panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+    game.draw_panel(panel, alpha_scale=0.9)
+
+    eyebrow = game.small_font.render("UM CAMPO AINDA RESPIRA", True, PALETTE["morale"])
+    title = game.title_font.render("Fogueira do Fim", True, PALETTE["text"])
+    subtitle = game.body_font.render(
+        "Carregando sociedade, trilhas, clima e a vigia da noite.",
+        True,
+        PALETTE["accent_soft"],
+    )
+    game.screen.blit(eyebrow, eyebrow.get_rect(center=(panel.centerx, panel.y + 42)))
+    game.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 104)))
+    game.screen.blit(subtitle, subtitle.get_rect(center=(panel.centerx, panel.y + 152)))
+
+    bar = pygame.Rect(panel.x + 92, panel.y + 196, panel.width - 184, 18)
+    progress = min(1.0, game.splash_elapsed / max(0.01, game.splash_min_duration))
+    pygame.draw.rect(game.screen, (20, 28, 30), bar, border_radius=9)
+    pygame.draw.rect(game.screen, PALETTE["ui_line"], bar, 1, border_radius=9)
+    fill = max(24, int((bar.width - 4) * progress))
+    pygame.draw.rect(game.screen, PALETTE["accent_soft"], (bar.x + 2, bar.y + 2, min(fill, bar.width - 4), bar.height - 4), border_radius=8)
+
+    loading = game.ui_small_font.render("Preparando a clareira...", True, PALETTE["muted"])
+    game.screen.blit(loading, loading.get_rect(center=(panel.centerx, panel.y + 234)))
+
+    if game.splash_elapsed >= 0.45:
+        pulse = 0.55 + 0.45 * ((pygame.math.Vector2(1, 0).rotate(game.splash_hint_pulse * 160).x + 1) * 0.5)
+        hint = game.ui_small_font.render("Pressione Enter, clique ou E para continuar", True, PALETTE["text"])
+        hint.set_alpha(int(255 * pulse))
+        game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.bottom - 34)))
+
+
 def draw_title_screen(game) -> None:
     layout = game.title_ui_layout()
+    intro_alpha = int(max(0, min(255, getattr(game, "title_intro_alpha", 255.0))))
     overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    overlay.fill((6, 10, 12, 112))
+    overlay.fill((6, 10, 12, int(112 * (intro_alpha / 255 if intro_alpha else 0))))
     game.screen.blit(overlay, (0, 0))
 
     mist = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
     for index in range(4):
         band = pygame.Rect(0, 80 + index * 160, SCREEN_WIDTH, 120)
-        pygame.draw.ellipse(mist, (12, 16, 18, 34), band.inflate(180, 60))
+        pygame.draw.ellipse(mist, (12, 16, 18, int(34 * (intro_alpha / 255 if intro_alpha else 0))), band.inflate(180, 60))
     game.screen.blit(mist, (0, 0))
 
     panel = layout["panel"]
     frame = pygame.Surface(panel.size, pygame.SRCALPHA)
-    pygame.draw.rect(frame, (8, 12, 14, 132), frame.get_rect(), border_radius=28)
-    pygame.draw.rect(frame, (124, 96, 70, 70), frame.get_rect(), 1, border_radius=28)
+    pygame.draw.rect(frame, (8, 12, 14, int(132 * (intro_alpha / 255 if intro_alpha else 0))), frame.get_rect(), border_radius=28)
+    pygame.draw.rect(frame, (124, 96, 70, int(70 * (intro_alpha / 255 if intro_alpha else 0))), frame.get_rect(), 1, border_radius=28)
     game.screen.blit(frame, panel.topleft)
 
     title = game.title_font.render("Fogueira do Fim", True, PALETTE["text"])
@@ -182,6 +226,7 @@ def draw_title_screen(game) -> None:
                 center=(panel.centerx, footer_y + index * (footer_line_height + 2) + footer_line_height // 2)
             ),
         )
+
 
 
 def draw_tips_screen(game) -> None:

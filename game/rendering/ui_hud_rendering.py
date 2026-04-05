@@ -3,6 +3,9 @@ from __future__ import annotations
 import pygame
 
 from ..core.config import FOCUS_LABELS, PALETTE, ROLE_COLORS, SCREEN_HEIGHT, SCREEN_WIDTH, format_clock
+from ..ui.ui_helpers import HUD_LEFT_PANEL_WIDTH, HUD_MARGIN, HUD_PANEL_GAP, HUD_SIDE_PANEL_WIDTH
+
+HUD_LOWER_RIGHT_MARGIN = 6
 
 
 def draw_hud(game) -> None:
@@ -25,7 +28,7 @@ def draw_hud(game) -> None:
 
 
 def draw_ribbon(game, compact_mode: bool) -> None:
-    ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 280, 16, 560, 66)
+    ribbon = pygame.Rect(SCREEN_WIDTH // 2 - 280, HUD_MARGIN, 560, 66)
     game.draw_panel(ribbon)
     ribbon_title_text = game.fit_text_to_width(
         game.body_font,
@@ -57,10 +60,10 @@ def draw_ribbon(game, compact_mode: bool) -> None:
 
 
 def draw_camp_panel(game, compact_mode: bool) -> pygame.Rect:
-    panel_width = 358
+    panel_width = HUD_LEFT_PANEL_WIDTH
     panel_height = 182 if compact_mode else 248
-    panel_x = 18
-    panel_y = 16
+    panel_x = HUD_MARGIN
+    panel_y = HUD_MARGIN
     panel_inner_width = panel_width - 36
     region_text = f"Regiao atual: {game.current_region_label}"
     biome_text = f"Bioma {game.current_biome_label}  |  boss {game.current_zone_boss_label}"
@@ -143,7 +146,8 @@ def draw_camp_panel(game, compact_mode: bool) -> pygame.Rect:
 
 
 def draw_player_panel(game, compact_mode: bool, camp_panel: pygame.Rect) -> pygame.Rect:
-    player_panel = pygame.Rect(18, 212 if compact_mode else camp_panel.bottom + 16, 358, 92 if compact_mode else 154)
+    player_y = 212 if compact_mode else camp_panel.bottom + HUD_PANEL_GAP
+    player_panel = pygame.Rect(HUD_MARGIN, player_y, HUD_LEFT_PANEL_WIDTH, 92 if compact_mode else 154)
     game.draw_panel(player_panel)
     heading = game.heading_font.render("Chefe do Acampamento", True, PALETTE["text"])
     game.screen.blit(heading, (player_panel.x + 18, player_panel.y + 14))
@@ -275,24 +279,32 @@ def draw_society_panel(game, compact_mode: bool) -> pygame.Rect:
 
 def draw_directive_panel(game, society_panel: pygame.Rect) -> None:
     chat_panel = game.chat_panel_layout()["panel"]
-    directive_y = society_panel.bottom + 16
-    directive_height = max(148, chat_panel.y - directive_y - 14)
-    directive_panel = pygame.Rect(SCREEN_WIDTH - 346, directive_y, 328, directive_height)
+    directive_y = society_panel.bottom + HUD_PANEL_GAP
+    directive_height = max(148, chat_panel.y - directive_y - HUD_MARGIN)
+    directive_panel = pygame.Rect(
+        SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_LOWER_RIGHT_MARGIN,
+        directive_y,
+        HUD_SIDE_PANEL_WIDTH,
+        directive_height,
+    )
     game.draw_panel(directive_panel)
     directive_title = game.heading_font.render("Tarefas do Chefe", True, PALETTE["text"])
-    game.screen.blit(directive_title, (directive_panel.x + 18, directive_panel.y + 14))
-    bullet_y = directive_panel.y + 52
+    title_x = directive_panel.x + 22
+    content_x = directive_panel.x + 22
+    content_width = directive_panel.width - 44
+    game.screen.blit(directive_title, (title_x, directive_panel.y + 14))
+    bullet_y = directive_panel.y + 54
     previous_clip = game.screen.get_clip()
-    objective_view = pygame.Rect(directive_panel.x + 14, directive_panel.y + 46, directive_panel.width - 28, directive_panel.height - 58)
+    objective_view = pygame.Rect(content_x, directive_panel.y + 48, content_width, directive_panel.height - 60)
     game.screen.set_clip(objective_view)
     for index, line in enumerate(game.current_objectives()[:3]):
         bullet_y = game.draw_wrapped_text(
             game.ui_small_font,
             f"{index + 1}. {line}",
             PALETTE["text"],
-            directive_panel.x + 18,
+            content_x,
             bullet_y,
-            directive_panel.width - 32,
+            content_width,
             line_gap=1,
         ) + 8
     game.screen.set_clip(previous_clip)
@@ -300,14 +312,21 @@ def draw_directive_panel(game, society_panel: pygame.Rect) -> None:
 
 def draw_info_panel(game) -> None:
     chat_panel = game.chat_panel_layout()["panel"]
-    info_panel = pygame.Rect(chat_panel.right + 18, chat_panel.y, SCREEN_WIDTH - chat_panel.right - 36, chat_panel.height)
+    info_panel = pygame.Rect(
+        SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_LOWER_RIGHT_MARGIN,
+        chat_panel.y,
+        HUD_SIDE_PANEL_WIDTH,
+        chat_panel.height,
+    )
     game.draw_panel(info_panel)
+    content_x = info_panel.x + 22
+    content_width = info_panel.width - 44
     controls = (
         "WASD mover  |  Shift correr  |  Clique/espaco atacar",
         "E agir  |  botao direito interage  |  F5/F9 salvar",
         game.event_message if game.event_timer > 0 else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "Chegue perto de um morador e aperte E para conversar."),
     )
-    line_y = info_panel.y + 12
+    line_y = info_panel.y + 14
     for index, line in enumerate(controls):
         font = game.ui_small_font if index < 2 else game.body_font
         color = PALETTE["text"] if index < 2 else (PALETTE["danger_soft"] if game.active_dynamic_events else PALETTE["muted"])
@@ -315,9 +334,9 @@ def draw_info_panel(game) -> None:
             font,
             line,
             color,
-            info_panel.x + 14,
+            content_x,
             line_y,
-            info_panel.width - 28,
+            content_width,
             line_gap=2,
         ) + 6
 
