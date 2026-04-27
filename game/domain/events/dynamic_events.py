@@ -12,6 +12,44 @@ if TYPE_CHECKING:
     from ...app.session import Game
 
 
+FIRE_RESOURCE_KEYS = ("logs", "wood", "food", "herbs", "scrap", "meals", "medicine")
+
+
+def burn_resource_bundle(game: "Game", bundle: dict[str, int]) -> dict[str, int]:
+    lost: dict[str, int] = {}
+    for resource, amount in bundle.items():
+        if resource not in FIRE_RESOURCE_KEYS or amount <= 0:
+            continue
+        current = int(getattr(game, resource, 0))
+        consumed = min(current, int(amount))
+        if consumed <= 0:
+            continue
+        setattr(game, resource, current - consumed)
+        lost[resource] = consumed
+    return lost
+
+
+def storage_fire_loss_bundle(game: "Game", *, severe: bool) -> dict[str, int]:
+    if severe:
+        return {
+            "logs": 5 + game.random.randint(0, 2),
+            "wood": 6 + game.random.randint(0, 3),
+            "food": 3,
+            "scrap": 3,
+            "meals": 2,
+            "herbs": 1,
+            "medicine": 1,
+        }
+    bundle = {"wood": 1}
+    if game.random.random() < 0.5:
+        bundle["logs"] = 1
+    if game.random.random() < 0.35:
+        bundle["food"] = 1
+    if game.random.random() < 0.3:
+        bundle["scrap"] = 1
+    return bundle
+
+
 def create_faction_standings(_game: "Game") -> dict[str, float]:
     return {
         "andarilhos": 12.0,
@@ -77,7 +115,7 @@ def dynamic_event_summary(game: "Game") -> str | None:
         hardline = dict(event.data.get("hardline", {}))
         return f"{game.faction_label(str(event.data.get('faction', 'andarilhos')))}: E {humane.get('title', 'negociar')}  |  Q {hardline.get('title', 'impor')}  |  {max(0, int(event.timer))}s"
     if event.kind == "expedicao":
-        return f"Expedicao pede socorro: va ate o sinal vermelho e use E  |  {max(0, int(event.timer))}s"
+        return f"Expedição pede socorro: vá até o sinal vermelho e use E  |  {max(0, int(event.timer))}s"
     return f"{event.label} - {max(0, int(event.timer))}s"
 
 
@@ -106,7 +144,7 @@ def spawn_dynamic_event(
     )
     game.next_dynamic_event_uid += 1
     game.active_dynamic_events = [event]
-    game.dynamic_event_cooldown = game.random.uniform(18.0, 30.0)
+    game.dynamic_event_cooldown = game.random.uniform(18.0, 30.0) * (1.0 - game.radio_signal_bonus() * 0.24)
     game.set_event_message(label, duration=max(5.0, min(8.0, timer * 0.5)))
     game.spawn_floating_text(label.lower(), pos, PALETTE["danger_soft"] if urgency > 0.55 else PALETTE["morale"])
     if kind in {"incendio", "alarme", "expedicao", "fuga", "desercao"}:
@@ -177,7 +215,8 @@ def dynamic_event_candidates(game: "Game") -> list[tuple[str, float, dict[str, o
         or game.average_health() < 74
     ) and not game.dynamic_event_for_survivor(disease_target):
         severity = clamp((disease_target.exhaustion - 40) / 40, 0.0, 1.0)
-        candidates.append(("doenca", 0.34 + severity * 0.24, {"target": disease_target}))
+        clinic_modifier = 1.0 - game.infirmary_safety_bonus()
+        candidates.append(("doenca", (0.34 + severity * 0.24) * clinic_modifier, {"target": disease_target}))
 
     if (game.weather_wind_factor() > 0.34 or game.weather_storm_factor() > 0.3 or game.bonfire_stage() == "alta") and (game.buildings or game.wood + game.logs > 12):
         fire_pos, site_kind, building_uid, site_label = game.choose_fire_site()
@@ -225,7 +264,7 @@ def dynamic_event_candidates(game: "Game") -> list[tuple[str, float, dict[str, o
         candidates.append(
             (
                 "faccao",
-                0.22 + game.camp_level * 0.04 + max(0.0, game.average_trust() - 40) * 0.002,
+                0.22 + game.camp_level * 0.04 + max(0.0, game.average_trust() - 40) * 0.002 + game.radio_signal_bonus() * 0.18,
                 {"faction": faction_key, "pos": roadside_pos, "visitor": dict(faction_visuals[faction_key])},
             )
         )
@@ -238,7 +277,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
         return
     candidates = game.dynamic_event_candidates()
     if not candidates:
-        game.dynamic_event_cooldown = game.random.uniform(8.0, 14.0)
+        game.dynamic_event_cooldown = game.random.uniform(8.0, 14.0) * (1.0 - game.radio_signal_bonus() * 0.24)
         return
 
     total_weight = sum(weight for _, weight, _ in candidates)
@@ -266,7 +305,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
         target: Survivor = payload["target"]
         game.spawn_dynamic_event(
             "doenca",
-            f"Doenca: {target.name} caiu febril e precisa de cuidado.",
+            f"Doença: {target.name} caiu febril e precisa de cuidado.",
             Vector2(target.pos),
             timer=34.0,
             urgency=0.62,
@@ -275,7 +314,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
     elif kind == "incendio":
         game.spawn_dynamic_event(
             "incendio",
-            f"Incendio: o {payload['site_label']} pegou fogo no acampamento.",
+            f"Incêndio: o {payload['site_label']} pegou fogo no acampamento.",
             Vector2(payload["pos"]),
             timer=24.0,
             urgency=0.84,
@@ -286,7 +325,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
         target = payload["target"]
         game.spawn_dynamic_event(
             "fuga",
-            f"Fuga: {target.name} entrou em panico e correu para fora do quadrado.",
+            f"Fuga: {target.name} entrou em pânico e correu para fora do quadrado.",
             Vector2(payload["pos"]),
             timer=22.0,
             urgency=0.72,
@@ -296,7 +335,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
         target = payload["target"]
         game.spawn_dynamic_event(
             "desercao",
-            f"Desercao: {target.name} arrumou a mochila e quer sumir pela trilha.",
+            f"Deserção: {target.name} arrumou a mochila e quer sumir pela trilha.",
             Vector2(payload["pos"]),
             timer=26.0,
             urgency=0.86,
@@ -307,7 +346,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
         pos = Vector2(payload["pos"])
         scenarios = {
             "andarilhos": {
-                "label": "Andarilhos pedem comida para uma familia ferida na trilha.",
+                "label": "Andarilhos pedem comida para uma família ferida na trilha.",
                 "humane": {
                     "title": "Partilhar mantimentos",
                     "cost": {"meals": 2, "food": 1},
@@ -317,7 +356,7 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
                 "hardline": {
                     "title": "Cobrar sucata pela passagem",
                     "reward": {"scrap": 3, "faction": -16, "morale": -5, "trust": -6},
-                    "message": "Voce fez negocio com a fome deles. O estoque cresceu, mas o boato correu.",
+                    "message": "Você fez negócio com a fome deles. O estoque cresceu, mas o boato correu.",
                 },
             },
             "ferro-velho": {
@@ -329,23 +368,23 @@ def maybe_spawn_dynamic_event(game: "Game") -> None:
                     "message": "A troca foi limpa e o elo com Ferro-Velho ficou mais forte.",
                 },
                 "hardline": {
-                    "title": "Tomar a carga na pressao",
+                    "title": "Tomar a carga na pressão",
                     "reward": {"scrap": 8, "faction": -20, "trust": -8, "morale": -4},
-                    "message": "Voce arrancou a carga deles na pressao. Ganhou metal e perdeu palavra.",
+                    "message": "Você arrancou a carga deles na pressão. Ganhou metal e perdeu palavra.",
                 },
             },
             "vigias_da_estrada": {
-                "label": "Os Vigias da Estrada capturaram um forasteiro e exigem sua posicao.",
+                "label": "Os Vigias da Estrada capturaram um forasteiro e exigem sua posição.",
                 "humane": {
                     "title": "Proteger o forasteiro",
                     "cost": {"wood": 2, "medicine": 1},
                     "reward": {"faction": -8, "trust": 8, "morale": 8, "future": {"survivor": True}},
-                    "message": "Voce peitou os Vigias e puxou o ferido para dentro do anel do acampamento.",
+                    "message": "Você peitou os Vigias e puxou o ferido para dentro do anel do acampamento.",
                 },
                 "hardline": {
                     "title": "Entregar o homem e ganhar paz",
                     "reward": {"faction": 15, "trust": -12, "morale": -10, "food": 2},
-                    "message": "Os Vigias sairam satisfeitos. O campo, nem tanto.",
+                    "message": "Os Vigias saíram satisfeitos. O campo, nem tanto.",
                 },
             },
         }
@@ -399,7 +438,7 @@ def resolve_dynamic_event(game: "Game", event: DynamicEvent, *, accepted: bool =
             game.herbs -= 1
             target.health = clamp(target.health + 14, 0, target.max_health)
         else:
-            game.set_event_message("A enfermaria esta sem remedios para tratar a febre.", duration=4.6)
+            game.set_event_message("A enfermaria está sem remédios para tratar a febre.", duration=4.6)
             return False
         target.energy = clamp(target.energy + 8, 0, 100)
         target.morale = clamp(target.morale + 4, 0, 100)
@@ -409,7 +448,7 @@ def resolve_dynamic_event(game: "Game", event: DynamicEvent, *, accepted: bool =
         game.spawn_floating_text("febre contida", target.pos, PALETTE["heal"])
 
     elif event.kind == "incendio":
-        game.set_event_message("O incendio foi contido antes de comer a estrutura.", duration=5.2)
+        game.set_event_message("O incêndio foi contido antes de comer a estrutura.", duration=5.2)
         game.spawn_floating_text("fogo controlado", event.pos, PALETTE["heal"])
         game.impact_burst(event.pos, PALETTE["heal"], radius=16, shake=1.4, ember_count=10, smoky=True)
 
@@ -425,7 +464,7 @@ def resolve_dynamic_event(game: "Game", event: DynamicEvent, *, accepted: bool =
             if survivor.distance_to(event.pos) < 220:
                 survivor.morale = clamp(survivor.morale + 2.0, 0, 100)
                 game.adjust_trust(survivor, 1.8)
-        game.set_event_message(f"Voce respondeu ao alarme da cerca {event.data.get('edge', 'externa')} e a linha segurou.", duration=5.6)
+        game.set_event_message(f"Você respondeu ao alarme da cerca {event.data.get('edge', 'externa')} e a linha segurou.", duration=5.6)
         game.spawn_floating_text("linha segurou", event.pos, PALETTE["heal"])
         game.impact_burst(event.pos, PALETTE["heal"], radius=14, shake=1.2, ember_count=6, smoky=True)
 
@@ -459,7 +498,7 @@ def resolve_dynamic_event(game: "Game", event: DynamicEvent, *, accepted: bool =
                 floating_label="abrigo aceito",
             )
             if not recruited:
-                game.set_event_message("O acampamento nao tem cama livre para acolher mais alguem.", duration=4.8)
+                game.set_event_message("O acampamento não tem cama livre para acolher mais alguém.", duration=4.8)
                 return False
             if game.next_recruit_index < len(game.recruit_pool) and game.recruit_pool[game.next_recruit_index]["name"] == profile.get("name"):
                 game.next_recruit_index += 1
@@ -484,7 +523,7 @@ def resolve_dynamic_event(game: "Game", event: DynamicEvent, *, accepted: bool =
             if survivor.name in expedition["members"]:
                 survivor.trust_leader = clamp(survivor.trust_leader + 3.5, 0, 100)
                 survivor.morale = clamp(survivor.morale + 4.0, 0, 100)
-        game.set_event_message(f"Voce abriu caminho e a expedicao retomou a rota para {expedition['region_name']}.", duration=6.0)
+        game.set_event_message(f"Você abriu caminho e a expedição retomou a rota para {expedition['region_name']}.", duration=6.0)
         game.spawn_floating_text("socorro entregue", event.pos, PALETTE["heal"])
 
     elif event.kind == "faccao":
@@ -518,18 +557,19 @@ def resolve_dynamic_event(game: "Game", event: DynamicEvent, *, accepted: bool =
             game.next_recruit_index += 1
             game.recruit_survivor_from_profile(
                 profile,
-                announce_message=f"{profile['name']} foi trazido pela confusao e pediu para ficar na clareira.",
+                announce_message=f"{profile['name']} foi trazido pela confusão e pediu para ficar na clareira.",
                 floating_label="resgatado",
             )
 
         text_color = PALETTE["morale"] if accepted else PALETTE["danger_soft"]
-        game.set_event_message(str(branch.get("message", "A faccao respondeu a sua escolha.")), duration=6.0)
+        game.set_event_message(str(branch.get("message", "A facção respondeu à sua escolha.")), duration=6.0)
         game.spawn_floating_text(game.faction_label(faction).lower(), event.pos, text_color)
 
     event.resolved = True
     game.survivors_react_to_event(event, resolved=True)
     game.active_dynamic_events = []
-    game.dynamic_event_cooldown = game.random.uniform(18.0, 34.0)
+    game.dynamic_event_cooldown = game.random.uniform(18.0, 34.0) * (1.0 - game.radio_signal_bonus() * 0.24)
+    game.notify_chief_task_progress("resolve_crisis", event_kind=event.kind)
     return True
 
 
@@ -547,23 +587,31 @@ def fail_dynamic_event(game: "Game", event: DynamicEvent) -> None:
         if event.building_uid is not None:
             building = game.building_by_id(event.building_uid)
             if building:
+                if building.kind == "estoque":
+                    lost = burn_resource_bundle(game, storage_fire_loss_bundle(game, severe=True))
+                    if lost:
+                        game.spawn_floating_text(game.bundle_summary(lost), building.pos, PALETTE["danger_soft"])
                 game.buildings = [item for item in game.buildings if item.uid != building.uid]
                 game.assign_building_specialists()
-                game.set_event_message(f"O incendio consumiu {building.kind} antes de ser apagado.", duration=5.8)
+                game.normalize_stockpile()
+                if building.kind == "estoque":
+                    game.set_event_message("O incêndio consumiu o estoque e levou parte dos suprimentos guardados.", duration=5.8)
+                else:
+                    game.set_event_message(f"O incêndio consumiu {building.kind} antes de ser apagado.", duration=5.8)
         elif site_kind == "stockpile":
-            game.logs = max(0, game.logs - 4)
-            game.wood = max(0, game.wood - 4)
-            game.food = max(0, game.food - 2)
+            lost = burn_resource_bundle(game, storage_fire_loss_bundle(game, severe=True))
+            if lost:
+                game.spawn_floating_text(game.bundle_summary(lost), event.pos, PALETTE["danger_soft"])
             game.set_event_message("As chamas comeram parte do estoque central.", duration=5.8)
         elif site_kind == "kitchen":
             game.food = max(0, game.food - 4)
             game.meals = max(0, game.meals - 3)
             game.herbs = max(0, game.herbs - 1)
-            game.set_event_message("O fogo passou pelo fogao e estragou suprimentos da cozinha.", duration=5.8)
+            game.set_event_message("O fogo passou pelo fogão e estragou suprimentos da cozinha.", duration=5.8)
         else:
             game.wood = max(0, game.wood - 3)
             game.scrap = max(0, game.scrap - 3)
-            game.set_event_message("A oficina perdeu material depois do incendio.", duration=5.8)
+            game.set_event_message("A oficina perdeu material depois do incêndio.", duration=5.8)
         game.impact_burst(event.pos, PALETTE["danger_soft"], radius=18, shake=4.4, ember_count=10, smoky=True)
     elif event.kind == "alarme":
         nearest = game.closest_barricade(event.pos)
@@ -588,7 +636,7 @@ def fail_dynamic_event(game: "Game", event: DynamicEvent) -> None:
         target = next((survivor for survivor in game.survivors if survivor.name == event.target_name and survivor.is_alive()), None)
         if target:
             game.remove_survivor(target)
-            game.set_event_message(f"{target.name} desertou e levou sua funcao embora da clareira.", duration=6.0)
+            game.set_event_message(f"{target.name} desertou e levou sua função embora da clareira.", duration=6.0)
     elif event.kind == "abrigo":
         profile = event.data.get("profile", {})
         game.set_event_message(f"{profile.get('name', 'O viajante')} cansou de esperar e seguiu pela trilha.", duration=5.0)
@@ -603,11 +651,11 @@ def fail_dynamic_event(game: "Game", event: DynamicEvent) -> None:
     elif event.kind == "faccao":
         faction = str(event.data.get("faction", "andarilhos"))
         game.adjust_faction_standing(faction, -4.0)
-        game.set_event_message(f"{game.faction_label(faction)} foi embora levando o impasse na memoria.", duration=5.0)
+        game.set_event_message(f"{game.faction_label(faction)} foi embora levando o impasse na memória.", duration=5.0)
 
     game.survivors_react_to_event(event, resolved=False)
     game.active_dynamic_events = []
-    game.dynamic_event_cooldown = game.random.uniform(20.0, 34.0)
+    game.dynamic_event_cooldown = game.random.uniform(20.0, 34.0) * (1.0 - game.radio_signal_bonus() * 0.24)
 
 
 def update_dynamic_events(game: "Game", dt: float) -> None:
@@ -633,10 +681,22 @@ def update_dynamic_events(game: "Game", dt: float) -> None:
         if tick <= 0:
             event.data["tick"] = 1.8
             game.emit_embers(event.pos, 6, smoky=True)
-            if event.building_uid is None:
-                game.wood = max(0, game.wood - 1)
-                if str(event.data.get("site_kind")) == "kitchen":
-                    game.food = max(0, game.food - 1)
+            if event.building_uid is not None:
+                building = game.building_by_id(event.building_uid)
+                if building and building.kind == "estoque":
+                    lost = burn_resource_bundle(game, storage_fire_loss_bundle(game, severe=False))
+                    if lost:
+                        game.spawn_floating_text(game.bundle_summary(lost), event.pos, PALETTE["danger_soft"])
+            else:
+                site_kind = str(event.data.get("site_kind"))
+                if site_kind == "stockpile":
+                    lost = burn_resource_bundle(game, storage_fire_loss_bundle(game, severe=False))
+                    if lost:
+                        game.spawn_floating_text(game.bundle_summary(lost), event.pos, PALETTE["danger_soft"])
+                else:
+                    game.wood = max(0, game.wood - 1)
+                    if site_kind == "kitchen":
+                        game.food = max(0, game.food - 1)
             game.screen_shake = max(game.screen_shake, 1.4)
         else:
             event.data["tick"] = tick

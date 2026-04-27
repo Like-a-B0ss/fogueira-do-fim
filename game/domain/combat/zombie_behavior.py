@@ -50,6 +50,8 @@ def configure_zombie(zombie, pos: Vector2, day: int, *, boss_profile: dict[str, 
     zombie.slam_cooldown = 0.0
     zombie.enrage_level = 0
     zombie.visual_state = ""
+    zombie.spawn_source = ""
+    zombie.summon_chain_budget = None
 
     if zombie.is_boss:
         _configure_boss(zombie, boss_profile or {})
@@ -158,7 +160,7 @@ def _update_boss_state(zombie, game: "Game", dt: float) -> None:
         game.damage_pulses.append(DamagePulse(Vector2(zombie.pos), 26, 0.32, PALETTE["danger"]))
 
     zombie.summon_cooldown = max(0.0, zombie.summon_cooldown - dt)
-    if zombie.summon_cooldown <= 0 and zombie.distance_to(game.player.pos) < 340 and len(game.zombies) < 26:
+    if zombie.summon_cooldown <= 0 and zombie.distance_to(game.player.pos) < 340 and game.can_spawn_zombie(pressure=True):
         game.spawn_local_zombies(zombie.pos, 2, pressure=True)
         game.spawn_floating_text("eco da zona", zombie.pos, PALETTE["danger_soft"])
         game.screen_shake = max(game.screen_shake, 3.8)
@@ -186,13 +188,27 @@ def _refresh_pursuit(zombie, game: "Game", target_actor) -> bool:
 
 
 def _maybe_call_horde(zombie, game: "Game", target_visible: bool) -> None:
+    if game.day <= 2 and not getattr(game, "horde_active", False):
+        return
+    summon_chain_budget = getattr(zombie, "summon_chain_budget", None)
+    if summon_chain_budget is not None and summon_chain_budget <= 0:
+        return
     if (
         zombie.howl_cooldown <= 0
-        and len(game.zombies) < 30
+        and game.can_spawn_zombie(pressure=True)
         and (target_visible or zombie.distance_to(CAMP_CENTER) < game.camp_clearance_radius() + 140)
         and (zombie.variant in {"howler", "raider"} or zombie.is_boss)
     ):
-        game.spawn_local_zombies(zombie.pos, 1 if zombie.variant != "howler" else 2, pressure=True)
+        next_chain_budget = 0 if summon_chain_budget is None else summon_chain_budget - 1
+        game.spawn_local_zombies(
+            zombie.pos,
+            1 if zombie.variant != "howler" else 2,
+            pressure=True,
+            spawn_source=str(getattr(zombie, "spawn_source", "")),
+            summon_chain_budget=next_chain_budget,
+        )
+        if summon_chain_budget is not None:
+            zombie.summon_chain_budget = next_chain_budget
         game.spawn_floating_text("chamado podre", zombie.pos, PALETTE["danger_soft"])
         zombie.howl_cooldown = random.uniform(4.8, 7.2) if zombie.variant == "howler" else random.uniform(7.5, 11.0)
 

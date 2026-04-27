@@ -51,7 +51,13 @@ def draw_ribbon(game, compact_mode: bool) -> None:
     game.screen.blit(ribbon_title, ribbon_title.get_rect(center=(ribbon.centerx, ribbon.y + 20)))
     game.screen.blit(ribbon_sub, ribbon_sub.get_rect(center=(ribbon.centerx, ribbon.y + 44)))
     toggle_rect = game.hud_toggle_rect()
+    runtime_rect = game.runtime_panel_rect()
     hover = toggle_rect.collidepoint(game.input_state.mouse_screen)
+    runtime_hover = runtime_rect.collidepoint(game.input_state.mouse_screen)
+    pygame.draw.rect(game.screen, (62, 80, 84) if runtime_hover else PALETTE["ui_panel"], runtime_rect, border_radius=8)
+    pygame.draw.rect(game.screen, PALETTE["accent_soft"] if game.gameplay_settings_open or runtime_hover else PALETTE["ui_line"], runtime_rect, 1, border_radius=8)
+    runtime_text = game.ui_small_font.render("som", True, PALETTE["text"])
+    game.screen.blit(runtime_text, runtime_text.get_rect(center=runtime_rect.center))
     pygame.draw.rect(game.screen, (62, 80, 84) if hover else PALETTE["ui_panel"], toggle_rect, border_radius=8)
     pygame.draw.rect(game.screen, PALETTE["accent_soft"] if hover else PALETTE["ui_line"], toggle_rect, 1, border_radius=8)
     toggle_label = "+" if compact_mode else "-"
@@ -123,23 +129,45 @@ def draw_camp_panel(game, compact_mode: bool) -> pygame.Rect:
     )
 
     if compact_mode:
-        game.draw_resource_meter(panel.x + 18, panel.y + 112, 72, game.logs, "Toras", (170, 130, 78))
-        game.draw_resource_meter(panel.x + 102, panel.y + 112, 72, game.wood, "Tabuas", PALETTE["accent_soft"])
-        game.draw_resource_meter(panel.x + 186, panel.y + 112, 72, game.scrap, "Sucata", ROLE_COLORS["mensageiro"])
-        game.draw_resource_meter(panel.x + 270, panel.y + 112, 72, game.meals, "Refeic.", PALETTE["morale"])
+        game.draw_resource_meter(
+            panel.x + 18, panel.y + 112, 72, game.logs, "Toras", (170, 130, 78), game.stockpile_capacity("logs")
+        )
+        game.draw_resource_meter(
+            panel.x + 102, panel.y + 112, 72, game.wood, "Tabuas", PALETTE["accent_soft"], game.stockpile_capacity("wood")
+        )
+        game.draw_resource_meter(
+            panel.x + 186, panel.y + 112, 72, game.scrap, "Sucata", ROLE_COLORS["mensageiro"], game.stockpile_capacity("scrap")
+        )
+        game.draw_resource_meter(
+            panel.x + 270, panel.y + 112, 72, game.meals, "Refeic.", PALETTE["morale"], game.stockpile_capacity("meals")
+        )
         game.draw_resource_bar(panel.x + 18, panel.y + 166, 152, 12, game.bonfire_heat / 100, "Chama", PALETTE["light"])
         game.draw_resource_bar(panel.x + 190, panel.y + 166, 152, 12, game.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
     else:
         meter_y = max(panel.y + 128, info_bottom + 10)
         second_row_y = meter_y + 50
         bar_y = second_row_y + 50
-        game.draw_resource_meter(panel.x + 18, meter_y, 72, game.logs, "Toras", (170, 130, 78))
-        game.draw_resource_meter(panel.x + 102, meter_y, 72, game.wood, "Tabuas", PALETTE["accent_soft"])
-        game.draw_resource_meter(panel.x + 186, meter_y, 72, game.food, "Insumos", PALETTE["heal"])
-        game.draw_resource_meter(panel.x + 270, meter_y, 72, game.herbs, "Ervas", (124, 176, 102))
-        game.draw_resource_meter(panel.x + 18, second_row_y, 72, game.scrap, "Sucata", ROLE_COLORS["mensageiro"])
-        game.draw_resource_meter(panel.x + 102, second_row_y, 72, game.meals, "Refeic.", PALETTE["morale"])
-        game.draw_resource_meter(panel.x + 186, second_row_y, 72, game.medicine, "Remed.", (194, 130, 130))
+        game.draw_resource_meter(
+            panel.x + 18, meter_y, 72, game.logs, "Toras", (170, 130, 78), game.stockpile_capacity("logs")
+        )
+        game.draw_resource_meter(
+            panel.x + 102, meter_y, 72, game.wood, "Tabuas", PALETTE["accent_soft"], game.stockpile_capacity("wood")
+        )
+        game.draw_resource_meter(
+            panel.x + 186, meter_y, 72, game.food, "Insumos", PALETTE["heal"], game.stockpile_capacity("food")
+        )
+        game.draw_resource_meter(
+            panel.x + 270, meter_y, 72, game.herbs, "Ervas", (124, 176, 102), game.stockpile_capacity("herbs")
+        )
+        game.draw_resource_meter(
+            panel.x + 18, second_row_y, 72, game.scrap, "Sucata", ROLE_COLORS["mensageiro"], game.stockpile_capacity("scrap")
+        )
+        game.draw_resource_meter(
+            panel.x + 102, second_row_y, 72, game.meals, "Refeic.", PALETTE["morale"], game.stockpile_capacity("meals")
+        )
+        game.draw_resource_meter(
+            panel.x + 186, second_row_y, 72, game.medicine, "Remed.", (194, 130, 130), game.stockpile_capacity("medicine")
+        )
         game.draw_resource_bar(panel.x + 18, bar_y, 152, 12, game.bonfire_heat / 100, "Chama", PALETTE["light"])
         game.draw_resource_bar(panel.x + 190, bar_y, 152, 12, game.bonfire_ember_bed / 100, "Brasa", (214, 122, 78))
     return panel
@@ -322,8 +350,8 @@ def draw_info_panel(game) -> None:
     content_x = info_panel.x + 22
     content_width = info_panel.width - 44
     controls = (
-        "WASD mover  |  Shift correr  |  Clique/espaco atacar",
-        "E agir  |  botao direito interage  |  F5/F9 salvar",
+        "WASD mover  |  Shift correr  |  Clique/espaço atacar",
+        "E agir  |  M volume  |  F5/F9 salvar",
         game.event_message if game.event_timer > 0 else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "Chegue perto de um morador e aperte E para conversar."),
     )
     line_y = info_panel.y + 14

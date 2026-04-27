@@ -13,10 +13,11 @@ def create_build_recipes(world) -> list[dict[str, object]]:
         {"kind": "barraca", "label": "Barraca", "wood": 5, "scrap": 1, "size": 34, "hint": "+2 camas"},
         {"kind": "torre", "label": "Torre", "wood": 8, "scrap": 4, "size": 28, "hint": "vigia especializado"},
         {"kind": "horta", "label": "Horta", "wood": 3, "scrap": 1, "size": 30, "hint": "mais comida"},
-        {"kind": "anexo", "label": "Anexo", "wood": 7, "scrap": 5, "size": 32, "hint": "reforca barricadas"},
-        {"kind": "serraria", "label": "Serraria", "wood": 7, "scrap": 2, "size": 34, "hint": "toras viram tabuas"},
-        {"kind": "cozinha", "label": "Cozinha", "wood": 6, "scrap": 2, "size": 34, "hint": "refeicoes em lote"},
-        {"kind": "enfermaria", "label": "Enfermaria", "wood": 6, "scrap": 4, "size": 34, "hint": "cura e remedios"},
+        {"kind": "anexo", "label": "Anexo", "wood": 7, "scrap": 5, "size": 32, "hint": "reforça barricadas"},
+        {"kind": "serraria", "label": "Serraria", "wood": 7, "scrap": 2, "size": 34, "hint": "toras viram tábuas"},
+        {"kind": "cozinha", "label": "Cozinha", "wood": 6, "scrap": 2, "size": 34, "hint": "refeições em lote"},
+        {"kind": "enfermaria", "label": "Enfermaria", "wood": 6, "scrap": 4, "size": 34, "hint": "cura e remédios"},
+        {"kind": "estoque", "label": "Estoque", "wood": 8, "scrap": 3, "size": 36, "hint": "+espaço de suprimentos"},
     ]
 
 
@@ -53,7 +54,7 @@ def active_build_requests(world) -> list[BuildingRequest]:
 
 
 def prune_build_requests(world) -> None:
-    """Limpa pedidos que perderam o morador responsavel ou o espaco reservado."""
+    """Limpa pedidos que perderam o morador responsável ou o espaço reservado."""
     valid_names = {survivor.name for survivor in world.survivors if survivor.is_alive()}
     kept: list[BuildingRequest] = []
     for request in world.build_requests:
@@ -104,7 +105,7 @@ def desired_survivor_build_kind(world, survivor) -> str | None:
 
 
 def find_build_request_site(world, kind: str, survivor=None) -> Vector2 | None:
-    """Reserva um ponto valido dentro da base para a futura obra do morador."""
+    """Reserva um ponto válido dentro da base para a futura obra do morador."""
     rect = world.camp_rect(-48)
     origin = Vector2(survivor.pos) if survivor is not None else Vector2(CAMP_CENTER)
     candidates: list[tuple[float, Vector2]] = []
@@ -131,38 +132,51 @@ def find_build_request_site(world, kind: str, survivor=None) -> Vector2 | None:
 
 
 def propose_survivor_build_request(world, survivor) -> BuildingRequest | None:
-    """Transforma a necessidade do morador em sugestao de chat, sem reservar obra no chao."""
+    """Transforma a necessidade do morador em pedido persistente para o chefe aprovar."""
     kind = world.desired_survivor_build_kind(survivor)
     if not kind:
+        return None
+    site = world.find_build_request_site(kind, survivor)
+    if site is None:
         return None
     recipe = world.build_recipe_for(kind)
     survivor.build_request_cooldown = world.random.uniform(64.0, 92.0)
     wood_cost, scrap_cost = world.build_cost_for(kind)
     bark_text, reason = world.contextual_build_request_reason(survivor, kind)
+    request = BuildingRequest(
+        uid=world.next_build_request_uid,
+        requester_name=survivor.name,
+        kind=kind,
+        label=str(recipe["label"]),
+        pos=site,
+        size=float(recipe["size"]),
+    )
+    world.next_build_request_uid += 1
+    world.build_requests.append(request)
     world.trigger_survivor_bark(survivor, bark_text, PALETTE["accent_soft"], duration=3.0)
     world.add_chat_message(
         survivor.name,
-        f"acha que a base precisa de {str(recipe['label']).lower()} porque {reason}. Custo: {wood_cost} tabuas e {scrap_cost} sucata.",
+        f"pediu {str(recipe['label']).lower()} porque {reason}. Custo: {wood_cost} tábuas e {scrap_cost} sucata.",
         PALETTE["accent_soft"],
         source="npc",
     )
     world.set_event_message(f"{survivor.name} sugeriu {str(recipe['label']).lower()} no chat do acampamento.", duration=5.2)
-    return None
+    return request
 
 
 def approve_build_request(world, request: BuildingRequest) -> tuple[bool, str]:
     """Confirma o pedido do morador e libera os recursos da obra."""
     if request not in world.build_requests:
-        return False, "Esse pedido nao existe mais."
+        return False, "Esse pedido não existe mais."
     if request.approved:
-        return False, "Essa obra ja foi aprovada."
+        return False, "Essa obra já foi aprovada."
     world.build_requests.remove(request)
     if not world.is_valid_build_position(request.kind, request.pos):
         return False, "O ponto reservado foi perdido. O morador precisa planejar de novo."
     world.build_requests.append(request)
     wood_cost, scrap_cost = world.build_cost_for(request.kind)
     if world.wood < wood_cost or world.scrap < scrap_cost:
-        return False, f"Faltam {wood_cost} tabuas e {scrap_cost} sucata para liberar essa obra."
+        return False, f"Faltam {wood_cost} tábuas e {scrap_cost} sucata para liberar essa obra."
     world.wood -= wood_cost
     world.scrap -= scrap_cost
     request.approved = True
@@ -174,17 +188,17 @@ def approve_build_request(world, request: BuildingRequest) -> tuple[bool, str]:
         world.adjust_trust(requester, 2.4)
         world.trigger_survivor_bark(requester, "Boa. Eu mesmo levanto isso.", PALETTE["heal"], duration=2.8)
     world.add_chat_message("radio", f"Obra aprovada: {request.label.lower()} vai sair do papel.", PALETTE["heal"], source="system")
-    world.set_event_message(f"Voce aprovou {request.label.lower()}. Agora a equipe vai levantar a estrutura.", duration=5.2)
+    world.set_event_message(f"Você aprovou {request.label.lower()}. Agora a equipe vai levantar a estrutura.", duration=5.2)
     return True, f"{request.label} aprovada."
 
 
 def complete_build_request(world, request: BuildingRequest) -> Building | None:
-    """Transforma a obra aprovada em um predio pronto quando o trabalho acaba."""
+    """Transforma a obra aprovada em um prédio pronto quando o trabalho acaba."""
     if request not in world.build_requests:
         return None
     world.build_requests.remove(request)
     if not world.is_valid_build_position(request.kind, request.pos):
-        world.set_event_message(f"A obra de {request.label.lower()} perdeu espaco e foi cancelada.", duration=4.8)
+        world.set_event_message(f"A obra de {request.label.lower()} perdeu espaço e foi cancelada.", duration=4.8)
         return None
     building = Building(
         uid=world.next_building_uid,
@@ -196,6 +210,7 @@ def complete_build_request(world, request: BuildingRequest) -> Building | None:
     world.buildings.append(building)
     world.refresh_barricade_strength()
     world.assign_building_specialists()
+    world.notify_chief_task_progress("build", kind=request.kind)
     world.spawn_floating_text(request.label.lower(), request.pos, PALETTE["accent_soft"])
     world.emit_embers(request.pos, 6, smoky=True)
     world.set_event_message(f"{request.label} pronta na clareira.", duration=4.8)
@@ -264,7 +279,11 @@ def expansion_cost(world) -> tuple[int, int]:
         "mid": 1.04,
         "late": 1.12,
     }[phase]
-    return max(1, math.ceil(base_logs * multiplier)), max(1, math.ceil(base_scrap * multiplier))
+    sawmill_discount = world.sawmill_expansion_discount()
+    return (
+        max(1, math.ceil(base_logs * multiplier * (1.0 - sawmill_discount))),
+        max(1, math.ceil(base_scrap * multiplier * (1.0 - sawmill_discount * 0.35))),
+    )
 
 
 def can_expand_camp(world) -> bool:
@@ -310,12 +329,13 @@ def build_placement_profile(world, kind: str) -> dict[str, float]:
         "serraria": {"edge": 12, "core": 28, "tent": 14, "building": 10, "wall": 16},
         "cozinha": {"edge": 12, "core": 28, "tent": 14, "building": 10, "wall": 16},
         "enfermaria": {"edge": 12, "core": 28, "tent": 14, "building": 10, "wall": 16},
+        "estoque": {"edge": 10, "core": 24, "tent": 12, "building": 10, "wall": 14},
     }
     return profiles.get(kind, {"edge": 12, "core": 28, "tent": 12, "building": 10, "wall": 16})
 
 
 def placement_collision_radius(world, kind: str) -> float:
-    """Aproxima o footprint real da estrutura para liberar mais espaco util."""
+    """Aproxima o footprint real da estrutura para liberar mais espaço útil."""
     return world.placement_size_for(kind) * 0.72
 
 
@@ -358,11 +378,12 @@ def player_building_reach(world, kind: str) -> float:
         "anexo": 106.0,
         "torre": 112.0,
         "enfermaria": 104.0,
+        "estoque": 104.0,
     }.get(kind, 100.0)
 
 
 def nearest_player_usable_building(world, pos: Vector2, max_distance: float = 116.0) -> Building | None:
-    allowed = {"serraria", "cozinha", "horta", "anexo", "torre", "enfermaria"}
+    allowed = {"serraria", "cozinha", "horta", "anexo", "torre", "enfermaria", "estoque"}
     candidates = [
         building
         for building in world.buildings
@@ -383,11 +404,11 @@ def player_building_prompt(world, building: Building, player) -> str:
         if world.food >= 2 and world.available_fuel() > 0:
             return "E cozinhar em lote"
         if world.available_fuel() <= 0:
-            return "Cozinha sem combustivel"
+            return "Cozinha sem combustível"
         return "Cozinha sem insumos"
     if kind == "horta":
         if world.is_night:
-            return "Horta descansando a noite"
+            return "Horta descansando à noite"
         if not world.garden_is_ready(building):
             return "Horta crescendo"
         return "E colher horta"
@@ -395,7 +416,7 @@ def player_building_prompt(world, building: Building, player) -> str:
         weakest = world.weakest_barricade()
         if weakest and weakest.health < weakest.max_health and world.wood > 0:
             return "E montar kit de reparo"
-        return "Anexo pronto para manutencao"
+        return "Anexo pronto para manutenção"
     if kind == "torre":
         if world.find_closest_zombie(building.pos, 250):
             return "E usar torre de vigia"
@@ -404,8 +425,10 @@ def player_building_prompt(world, building: Building, player) -> str:
         if world.has_medical_supplies() and player.health < player.max_health - 8:
             return "E tratar ferimentos"
         if world.herbs > 0 and world.scrap > 0:
-            return "E preparar remedio"
+            return "E preparar remédio"
         return "Enfermaria tranquila"
+    if kind == "estoque":
+        return "Estoque amplia suprimentos"
     return "E usar estrutura"
 
 
@@ -421,14 +444,14 @@ def use_building_as_player(world, building: Building, player) -> bool:
         stored = world.add_resource_bundle({"wood": produced})
         world.spawn_floating_text(world.bundle_summary(stored or {"wood": produced}), building.pos, PALETTE["accent_soft"])
         world.impact_burst(building.pos, PALETTE["accent_soft"], radius=12, shake=0.45, ember_count=3, smoky=True)
-        world.set_event_message("A serraria mordeu as toras e soltou tabuas para a base.", duration=4.6)
+        world.set_event_message("A serraria mordeu as toras e soltou tábuas para a base.", duration=4.6)
         return True
     if kind == "cozinha":
         if world.food < 2:
             world.spawn_floating_text("faltam insumos", building.pos, PALETTE["muted"])
             return False
         if world.available_fuel() <= 0:
-            world.spawn_floating_text("sem combustivel", building.pos, PALETTE["muted"])
+            world.spawn_floating_text("sem combustível", building.pos, PALETTE["muted"])
             return False
         produced = world.cookhouse_output("cozinheiro")
         if not world.consume_resource("food", 2) or not world.consume_fuel(1):
@@ -449,7 +472,7 @@ def use_building_as_player(world, building: Building, player) -> bool:
         stored = world.add_resource_bundle(bundle)
         world.start_garden_regrow(building)
         world.spawn_floating_text(world.bundle_summary(stored or bundle), building.pos, PALETTE["heal"])
-        world.set_event_message("A horta rendeu um pouco de folego para o estoque.", duration=4.2)
+        world.set_event_message("A horta rendeu um pouco de fôlego para o estoque.", duration=4.2)
         return True
     if kind == "anexo":
         weakest = world.weakest_barricade()
@@ -460,7 +483,7 @@ def use_building_as_player(world, building: Building, player) -> bool:
         weakest.repair(world.workbench_repair_amount())
         world.spawn_floating_text("kit de reparo", weakest.pos, PALETTE["heal"])
         world.impact_burst(weakest.pos, PALETTE["heal"], radius=12, shake=0.55, ember_count=2, smoky=True)
-        world.set_event_message("O anexo virou manutencao rapida na linha defensiva.", duration=4.4)
+        world.set_event_message("O anexo virou manutenção rápida na linha defensiva.", duration=4.4)
         return True
     if kind == "torre":
         zombie = world.find_closest_zombie(building.pos, 250)
@@ -489,10 +512,14 @@ def use_building_as_player(world, building: Building, player) -> bool:
             produced = world.clinic_medicine_output()
             stored = world.add_resource_bundle({"medicine": produced})
             world.spawn_floating_text(world.bundle_summary(stored or {"medicine": produced}), building.pos, PALETTE["heal"])
-            world.set_event_message("A enfermaria montou remedios de campo para a proxima crise.", duration=4.8)
+            world.set_event_message("A enfermaria montou remédios de campo para a próxima crise.", duration=4.8)
             return True
         world.spawn_floating_text("sem uso imediato", building.pos, PALETTE["muted"])
         return False
+    if kind == "estoque":
+        world.spawn_floating_text("capacidade ampliada", building.pos, PALETTE["accent_soft"])
+        world.set_event_message("O estoque mantém mais suprimentos organizados e protegidos.", duration=4.4)
+        return True
     return False
 
 
@@ -501,10 +528,10 @@ def place_building(world, kind: str, pos: Vector2) -> bool:
     snapped = world.building_center_snapped(pos)
     wood_cost, scrap_cost = world.build_cost_for(recipe)
     if world.wood < wood_cost or world.scrap < scrap_cost:
-        world.set_event_message("Faltam recursos para essa construcao.", duration=3.4)
+        world.set_event_message("Faltam recursos para essa construção.", duration=3.4)
         return False
     if not world.is_valid_build_position(kind, snapped):
-        world.set_event_message("Nao ha espaco livre nesse ponto do acampamento.", duration=3.4)
+        world.set_event_message("Não há espaço livre nesse ponto do acampamento.", duration=3.4)
         return False
 
     world.wood -= wood_cost
@@ -520,6 +547,7 @@ def place_building(world, kind: str, pos: Vector2) -> bool:
     world.next_building_uid += 1
     world.refresh_barricade_strength()
     world.assign_building_specialists()
+    world.notify_chief_task_progress("build", kind=kind)
     world.spawn_floating_text(str(recipe["label"]).lower(), snapped, PALETTE["accent_soft"])
     world.set_event_message(f"{recipe['label']} erguida na clareira.", duration=4.8)
     world.emit_embers(snapped, 6, smoky=True)
@@ -558,7 +586,7 @@ def upgrade_barricade(world, barricade: Barricade) -> bool:
     wood_cost, scrap_cost = world.barricade_upgrade_cost(barricade)
     if world.wood < wood_cost or world.scrap < scrap_cost:
         world.spawn_floating_text(
-            f"precisa {wood_cost} tabuas e {scrap_cost} sucata",
+            f"precisa {wood_cost} tábuas e {scrap_cost} sucata",
             barricade.pos,
             PALETTE["muted"],
         )
@@ -572,6 +600,7 @@ def upgrade_barricade(world, barricade: Barricade) -> bool:
     world.spawn_floating_text(f"spikes nv {barricade.spike_level}", barricade.pos, PALETTE["accent_soft"])
     world.set_event_message("As defesas ganharam spikes mais agressivos.", duration=4.6)
     world.impact_burst(barricade.pos, PALETTE["accent_soft"], radius=13, shake=0.7, ember_count=3, smoky=True)
+    world.notify_chief_task_progress("repair_barricade")
     return True
 
 
@@ -585,12 +614,12 @@ def workbench_repair_amount(world) -> float:
 
 
 def can_use_workshop_saw(world) -> bool:
-    """Libera a oficina inicial para cortar toras em tabuas antes da serraria."""
+    """Libera a oficina inicial para cortar toras em tábuas antes da serraria."""
     return not world.buildings_of_kind("serraria") and world.logs > 0
 
 
 def workshop_plank_bundle(world, role: str | None = None) -> dict[str, int]:
-    """A oficina e lenta: serve para destravar o comeco, nao para substituir a serraria."""
+    """A oficina é lenta: serve para destravar o começo, não para substituir a serraria."""
     produced = 2
     if role in {"artesa", "lenhador"} and world.random.random() < 0.3:
         produced += 1
@@ -598,7 +627,7 @@ def workshop_plank_bundle(world, role: str | None = None) -> dict[str, int]:
 
 
 def cut_planks_at_workshop(world, *, role: str | None = None) -> dict[str, int] | None:
-    """Converte uma tora em poucas tabuas, sem a eficiencia de uma serraria real."""
+    """Converte uma tora em poucas tábuas, sem a eficiência de uma serraria real."""
     if not world.can_use_workshop_saw():
         return None
     if not world.consume_resource("logs", 1):
@@ -746,7 +775,7 @@ def expand_camp(world) -> bool:
     world.sync_survivor_assignments()
     world.terrain_surface = world.build_terrain_surface()
     world.record_fog_reveal(CAMP_CENTER, world.camp_clearance_radius() + 120)
-    world.set_event_message("A oficina abriu mais espaco e reforcou o quadrado do acampamento.", duration=7.0)
+    world.set_event_message("A oficina abriu mais espaço e reforçou o quadrado do acampamento.", duration=7.0)
     world.spawn_floating_text("acampamento ampliado", world.workshop_pos, PALETTE["accent_soft"])
     world.emit_embers(world.workshop_pos, 10, smoky=True)
     return True

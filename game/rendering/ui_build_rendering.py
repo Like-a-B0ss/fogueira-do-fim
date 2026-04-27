@@ -44,7 +44,7 @@ def draw_build_menu(game) -> None:
     game.draw_panel(panel)
     title = game.heading_font.render("Menu de Construcao", True, PALETTE["text"])
     subtitle = game.small_font.render(
-        f"B abre/fecha  |  1-7 seleciona  |  fase {game.economy_phase_label()}",
+        f"B abre/fecha  |  1-{len(game.build_recipes)} seleciona  |  fase {game.economy_phase_label()}",
         True,
         PALETTE["muted"],
     )
@@ -61,7 +61,7 @@ def draw_build_menu(game) -> None:
         pygame.draw.rect(game.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], rect, 1, border_radius=10)
         label = game.body_font.render(f"{index}. {recipe['label']}", True, PALETTE["text"])
         cost = game.small_font.render(
-            f"{wood_cost} tabuas  |  {scrap_cost} sucata  |  {recipe['hint']}",
+            f"{wood_cost} tábuas  |  {scrap_cost} sucata  |  {recipe['hint']}",
             True,
             PALETTE["muted"] if affordable else PALETTE["danger_soft"],
         )

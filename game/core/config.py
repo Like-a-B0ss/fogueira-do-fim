@@ -40,10 +40,10 @@ DEFAULT_GAME_SETTINGS: dict[str, object] = {
         },
         "runtime_ranges": {
             "master_volume": {"label": "Volume Geral", "step": 0.05, "min": 0.0, "max": 1.0},
-            "ambience_volume": {"label": "Ambiencia", "step": 0.05, "min": 0.0, "max": 1.0},
-            "music_volume": {"label": "Musica", "step": 0.05, "min": 0.0, "max": 1.0},
+            "ambience_volume": {"label": "Ambiência", "step": 0.05, "min": 0.0, "max": 1.0},
+            "music_volume": {"label": "Música", "step": 0.05, "min": 0.0, "max": 1.0},
             "screen_shake_scale": {"label": "Tremor de Tela", "step": 0.1, "min": 0.0, "max": 1.4},
-            "fog_strength": {"label": "Forca da Neblina", "step": 0.1, "min": 0.35, "max": 1.25},
+            "fog_strength": {"label": "Força da Neblina", "step": 0.1, "min": 0.35, "max": 1.25},
             "ui_contrast": {"label": "Contraste da HUD", "step": 0.1, "min": 0.7, "max": 1.4},
         },
         "title_background_spawn_range": [7.0, 12.0],
@@ -109,11 +109,11 @@ DEFAULT_GAME_SETTINGS: dict[str, object] = {
         },
         "messages": {
             "clear": "As nuvens abriram e a mata voltou a respirar.",
-            "cloudy": "O ceu fechou e a floresta entrou num cinza pesado.",
-            "wind": "O vento virou e as copas comecaram a gemer.",
+            "cloudy": "O céu fechou e a floresta entrou num cinza pesado.",
+            "wind": "O vento virou e as copas começaram a gemer.",
             "rain": "Uma chuva correu entre as copas e desceu sobre a clareira.",
-            "mist": "Uma bruma rasteira se espalhou pelo chao da mata.",
-            "storm": "O horizonte escureceu e uma tempestade comecou a se formar.",
+            "mist": "Uma bruma rasteira se espalhou pelo chão da mata.",
+            "storm": "O horizonte escureceu e uma tempestade começou a se formar.",
         },
         "flash": {
             "storm_threshold": 0.46,
@@ -158,7 +158,7 @@ DEFAULT_GAME_SETTINGS: dict[str, object] = {
         "mensageiro": [182, 143, 201],
     },
     "focus_labels": {
-        "balanced": "Equilibrio",
+        "balanced": "Equilíbrio",
         "supply": "Suprimentos",
         "fortify": "Fortificar",
         "morale": "Moral",

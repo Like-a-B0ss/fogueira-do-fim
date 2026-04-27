@@ -78,7 +78,6 @@ def draw_entities(game, shake_offset: Vector2) -> None:
                     role=survivor.role,
                     expression=survivor_expression,
                 )
-            draw_status_orb(game, pos, survivor)
             draw_survivor_bark(game, pos, survivor)
         else:
             zombie: Zombie = entity
@@ -376,19 +375,54 @@ def draw_survivor_bark(game, pos: Vector2, survivor: Survivor) -> None:
     game.screen.blit(bubble, bubble_pos)
 
 
-def draw_status_orb(game, pos: Vector2, survivor: Survivor) -> None:
-    color = PALETTE["heal"]
-    if survivor.conflict_cooldown > 0 or survivor.morale < 45:
-        color = PALETTE["danger_soft"]
-    elif survivor.exhaustion > 68 or survivor.energy < 35:
-        color = PALETTE["energy"]
-    elif getattr(survivor, "insanity", 0.0) > 68:
-        color = PALETTE["morale"]
-    elif survivor.trust_leader < 34:
-        color = PALETTE["muted"]
-    orb_pos = pos + Vector2(20, -26)
-    pygame.draw.circle(game.screen, (18, 24, 24), orb_pos, 8)
-    pygame.draw.circle(game.screen, color, orb_pos, 5)
+def draw_survivor_status_icons(game, pos: Vector2, survivor: Survivor) -> None:
+    icons: list[tuple[str, tuple[int, int, int]]] = []
+    if getattr(survivor, "on_expedition", False):
+        icons.append(("expedition", PALETTE["accent_soft"]))
+    if survivor.health < survivor.max_health * 0.48:
+        icons.append(("wound", PALETTE["danger_soft"]))
+    if getattr(survivor, "hunger", 0.0) > 66:
+        icons.append(("hunger", PALETTE["energy"]))
+    if survivor.exhaustion > 68 or survivor.energy < 32:
+        icons.append(("sleep", PALETTE["muted"]))
+    if getattr(survivor, "insanity", 0.0) > 64 or survivor.morale < 34 or survivor.conflict_cooldown > 0:
+        icons.append(("fear", PALETTE["morale"]))
+    if not icons:
+        icons.append(("ok", PALETTE["heal"]))
+
+    icons = icons[:4]
+    start_x = pos.x - (len(icons) - 1) * 8
+    y = pos.y - 62
+    for index, (kind, color) in enumerate(icons):
+        center = Vector2(start_x + index * 16, y)
+        draw_status_icon(game, center, kind, color)
+
+
+def draw_status_icon(game, center: Vector2, kind: str, color: tuple[int, int, int]) -> None:
+    pygame.draw.circle(game.screen, (14, 18, 20), center, 7)
+    pygame.draw.circle(game.screen, color, center, 6)
+    dark = (24, 28, 28)
+    light = PALETTE["text"]
+    if kind == "wound":
+        pygame.draw.line(game.screen, light, center + Vector2(-3, 0), center + Vector2(3, 0), 2)
+        pygame.draw.line(game.screen, light, center + Vector2(0, -3), center + Vector2(0, 3), 2)
+    elif kind == "hunger":
+        pygame.draw.circle(game.screen, dark, center + Vector2(-1, 1), 3)
+        pygame.draw.line(game.screen, light, center + Vector2(3, -4), center + Vector2(3, 4), 1)
+    elif kind == "sleep":
+        z_text = game.small_font.render("z", True, light)
+        game.screen.blit(z_text, z_text.get_rect(center=(int(center.x), int(center.y - 1))))
+    elif kind == "fear":
+        pygame.draw.circle(game.screen, dark, center + Vector2(-2, -1), 1)
+        pygame.draw.circle(game.screen, dark, center + Vector2(2, -1), 1)
+        pygame.draw.circle(game.screen, dark, center + Vector2(0, 3), 2, 1)
+    elif kind == "expedition":
+        tip = center + Vector2(0, -4)
+        left = center + Vector2(-4, 4)
+        right = center + Vector2(4, 2)
+        pygame.draw.polygon(game.screen, light, [tip, left, center + Vector2(0, 1), right])
+    else:
+        pygame.draw.circle(game.screen, light, center, 2)
 
 
 def draw_zombie_weapon(game, pos: Vector2, zombie: Zombie) -> None:

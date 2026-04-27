@@ -6,7 +6,18 @@ from pygame import Vector2
 
 
 def update(audio, game, dt: float) -> None:
-    if not audio.available or not game.scenes.is_gameplay():
+    if not audio.available:
+        return
+    scene_tag = game.scenes.current_name
+    if scene_tag != audio.scene_music_tag:
+        audio.scene_music_tag = scene_tag
+        audio.music_timer = 0.0
+        audio.ambience_timer = 0.0
+        audio.weather_timer = 0.0
+        audio.zombie_timer = 0.8
+        audio.frontend_phrase_index = 0
+    if not game.scenes.is_gameplay():
+        update_frontend_music(audio, game, dt)
         return
     audio.set_listener_position(game.player.pos)
 
@@ -22,6 +33,38 @@ def update(audio, game, dt: float) -> None:
     update_weather(audio, game)
     update_zombie_ambience(audio, game)
     update_music(audio, game)
+
+
+def update_frontend_music(audio, game, dt: float) -> None:
+    if not (game.scenes.is_splash() or game.scenes.is_title() or game.scenes.is_tips()):
+        return
+    audio.music_timer -= dt
+    if audio.music_timer > 0:
+        return
+    if game.scenes.is_splash():
+        sequence = (
+            ("music_frontend_veil", 0.48, (3.95, 4.25)),
+            ("music_frontend_lift", 0.5, (3.8, 4.15)),
+        )
+    elif game.scenes.is_tips():
+        sequence = (
+            ("music_frontend_glow", 0.4, (3.55, 3.95)),
+            ("music_frontend_resolve", 0.42, (3.75, 4.1)),
+            ("music_frontend_veil", 0.38, (3.9, 4.2)),
+        )
+    else:
+        sequence = (
+            ("music_frontend_veil", 0.52, (3.95, 4.25)),
+            ("music_frontend_lift", 0.54, (3.7, 4.0)),
+            ("music_frontend_glow", 0.53, (3.6, 3.95)),
+            ("music_frontend_resolve", 0.55, (3.9, 4.25)),
+        )
+
+    phrase_index = audio.frontend_phrase_index % len(sequence)
+    cue, volume, interval = sequence[phrase_index]
+    audio._play(cue, volume_scale=volume, category="music")
+    audio.frontend_phrase_index += 1
+    audio.music_timer = audio.rng.uniform(*interval)
 
 
 def update_player_steps(audio, game, dt: float) -> None:
@@ -89,50 +132,51 @@ def update_biome_ambience(audio, game) -> None:
     precipitation = game.weather_precipitation_factor() if hasattr(game, "weather_precipitation_factor") else 0.0
     mist = game.weather_mist_factor() if hasattr(game, "weather_mist_factor") else 0.0
     storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
+    wind = game.weather_wind_factor() if hasattr(game, "weather_wind_factor") else 0.0
 
     if daylight < 0.18:
-        options = [("ambient_night", 0.18), ("ambient_dread", 0.11)]
+        options = [("ambient_night", 0.32), ("ambient_dread", 0.24)]
         if biome == "swamp":
-            options.append(("ambient_swamp", 0.17))
-        elif biome == "grove":
-            options.append(("ambient_grove", 0.13))
+            options.append(("ambient_swamp", 0.3))
         elif biome == "ruin":
-            options.append(("ambient_ruin", 0.14))
+            options.append(("ambient_ruin", 0.26))
+        if biome == "grove" and wind > 0.12:
+            options.append(("ambient_wind", 0.16 + wind * 0.1))
         cue, volume = audio.rng.choice(options)
         audio._play(cue, volume_scale=volume, category="ambience")
-        audio.ambience_timer = audio.rng.uniform(4.2, 6.8)
+        audio.ambience_timer = audio.rng.uniform(2.6, 4.4)
         return
 
     if storm > 0.26 or precipitation > 0.28:
         if biome == "swamp":
-            audio._play("ambient_swamp", volume_scale=0.14 + storm * 0.03, category="ambience")
-        elif audio.rng.random() < 0.4:
-            audio._play("ambient_grove", volume_scale=0.1 + mist * 0.02, category="ambience")
-        audio.ambience_timer = audio.rng.uniform(5.6, 8.8)
+            audio._play("ambient_swamp", volume_scale=0.26 + storm * 0.06, category="ambience")
+        else:
+            audio._play("ambient_wind", volume_scale=0.18 + wind * 0.1 + storm * 0.05, category="ambience")
+        audio.ambience_timer = audio.rng.uniform(3.0, 5.0)
         return
     if mist > 0.24 or game.weather_cloud_cover() > 0.34:
-        options = [("ambient_day", 0.08)]
+        options = [("ambient_day", 0.18)]
         if biome == "swamp":
-            options.append(("ambient_swamp", 0.1))
+            options.append(("ambient_swamp", 0.22))
         elif biome == "ruin":
-            options.append(("ambient_ruin", 0.11))
-        elif biome == "grove":
-            options.append(("ambient_grove", 0.09))
+            options.append(("ambient_ruin", 0.23))
+        elif biome == "grove" and wind > 0.1:
+            options.append(("ambient_wind", 0.15 + wind * 0.08))
         cue, volume = audio.rng.choice(options)
         audio._play(cue, volume_scale=volume, category="ambience")
-        audio.ambience_timer = audio.rng.uniform(5.2, 8.2)
+        audio.ambience_timer = audio.rng.uniform(3.0, 5.2)
         return
 
-    options = [("ambient_day", 0.12)]
-    if biome == "grove":
-        options.append(("ambient_grove", 0.12))
-    elif biome == "swamp":
-        options.append(("ambient_swamp", 0.13))
+    options = [("ambient_day", 0.23)]
+    if biome == "swamp":
+        options.append(("ambient_swamp", 0.25))
     elif biome == "ruin":
-        options.append(("ambient_ruin", 0.12))
+        options.append(("ambient_ruin", 0.24))
+    elif biome == "grove" and wind > 0.1:
+        options.append(("ambient_wind", 0.15 + wind * 0.09))
     cue, volume = audio.rng.choice(options)
     audio._play(cue, volume_scale=volume, category="ambience")
-    audio.ambience_timer = audio.rng.uniform(5.4, 9.6)
+    audio.ambience_timer = audio.rng.uniform(3.2, 5.8)
 
 
 def update_weather(audio, game) -> None:
@@ -141,24 +185,27 @@ def update_weather(audio, game) -> None:
 
     precipitation = game.weather_precipitation_factor() if hasattr(game, "weather_precipitation_factor") else 0.0
     wind = game.weather_wind_factor() if hasattr(game, "weather_wind_factor") else 0.0
+    gust = float(getattr(game, "weather_gust_strength", wind))
+    wind_force = max(wind, gust)
     storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
     mist = game.weather_mist_factor() if hasattr(game, "weather_mist_factor") else 0.0
-    if precipitation > 0.22:
-        audio._play("ambient_rain", volume_scale=0.14 + precipitation * 0.16 + storm * 0.08, category="ambience")
-        if wind > 0.34 and audio.rng.random() < 0.4 + storm * 0.2:
-            audio._play("ambient_wind", volume_scale=0.06 + wind * 0.08 + storm * 0.04, category="ambience")
-        audio.weather_timer = audio.rng.uniform(1.5, 2.5)
+    if precipitation > 0.34:
+        audio._play("ambient_rain", volume_scale=0.14 + precipitation * 0.12 + storm * 0.05, category="ambience")
+        if wind_force > 0.22 and audio.rng.random() < 0.35 + wind_force * 0.32 + storm * 0.2:
+            audio._play("ambient_wind", volume_scale=0.16 + wind_force * 0.16 + storm * 0.05, category="ambience")
+        audio.weather_timer = audio.rng.uniform(3.6, 5.8)
     elif mist > 0.32:
-        if audio.rng.random() < 0.46:
-            audio._play("ambient_wind", volume_scale=0.03 + wind * 0.04 + mist * 0.02, category="ambience")
-        audio.weather_timer = audio.rng.uniform(3.8, 6.4)
-    elif wind > 0.26:
-        audio._play("ambient_wind", volume_scale=0.08 + wind * 0.14 + storm * 0.04, category="ambience")
-        audio.weather_timer = audio.rng.uniform(2.4, 4.2)
+        if wind_force > 0.08 and audio.rng.random() < 0.42 + wind_force * 0.42:
+            audio._play("ambient_wind", volume_scale=0.13 + wind_force * 0.14 + mist * 0.03, category="ambience")
+        audio.weather_timer = audio.rng.uniform(2.2, 4.0)
+    elif wind_force > 0.08:
+        audio._play("ambient_wind", volume_scale=0.14 + wind_force * 0.2 + storm * 0.04, category="ambience")
+        audio.weather_timer = audio.rng.uniform(
+            max(1.2, 3.6 - wind_force * 2.0),
+            max(2.0, 5.2 - wind_force * 2.4),
+        )
     else:
-        if wind > 0.24 and audio.rng.random() < 0.42:
-            audio._play("ambient_wind", volume_scale=0.05 + wind * 0.06, category="ambience")
-        audio.weather_timer = audio.rng.uniform(5.4, 8.2)
+        audio.weather_timer = audio.rng.uniform(3.8, 5.8)
 
 
 def update_zombie_ambience(audio, game) -> None:
@@ -230,19 +277,20 @@ def update_music(audio, game) -> None:
     )
 
     if tension >= 0.82:
-        audio._play("music_horde", volume_scale=0.14 + tension * 0.08, category="music")
-        audio.music_timer = audio.rng.uniform(2.8, 4.4)
+        audio._play("music_horde", volume_scale=0.36 + tension * 0.16, category="music")
+        audio.music_timer = audio.rng.uniform(2.2, 3.5)
     elif tension >= 0.46:
-        audio._play("music_threat", volume_scale=0.12 + tension * 0.07, category="music")
-        audio.music_timer = audio.rng.uniform(4.0, 6.2)
+        audio._play("music_threat", volume_scale=0.31 + tension * 0.14, category="music")
+        audio.music_timer = audio.rng.uniform(3.0, 4.8)
     elif dread >= 0.2:
-        audio._play("music_dread", volume_scale=0.08 + dread * 0.05, category="music")
-        audio.music_timer = audio.rng.uniform(5.2, 8.0)
-    elif not game.is_night and audio.rng.random() < 0.62:
-        audio._play("music_calm", volume_scale=0.08, category="music")
-        audio.music_timer = audio.rng.uniform(6.0, 9.6)
+        audio._play("music_dread", volume_scale=0.26 + dread * 0.12, category="music")
+        audio.music_timer = audio.rng.uniform(3.8, 6.0)
+    elif not game.is_night:
+        audio._play("music_calm", volume_scale=0.28, category="music")
+        audio.music_timer = audio.rng.uniform(4.0, 6.4)
     else:
-        audio.music_timer = audio.rng.uniform(5.4, 8.4)
+        audio._play("music_dread", volume_scale=0.22, category="music")
+        audio.music_timer = audio.rng.uniform(4.2, 6.6)
 
 
 

@@ -4,6 +4,7 @@ from pygame import Vector2
 
 from ...core.config import PALETTE
 from ...entities import Survivor
+from . import camp_social
 
 
 def most_injured_actor(world):
@@ -127,6 +128,7 @@ def recruit_survivor_from_profile(
 
 
 def remove_survivor(world, survivor) -> None:
+    camp_social.remember_survivor_loss(world, survivor.name)
     world.survivors = [member for member in world.survivors if member is not survivor]
     for member in world.survivors:
         member.relations.pop(survivor.name, None)

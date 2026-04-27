@@ -12,16 +12,48 @@ if TYPE_CHECKING:
     from ...app.session import Game
 
 
-def spawn_local_zombies(game: "Game", center: Vector2, count: int, *, pressure: bool = False) -> None:
+def active_zombie_cap(game: "Game", *, pressure: bool = False) -> int:
+    base = 6 + min(8, game.day * 2)
+    if getattr(game, "horde_active", False):
+        base += 5
+    if pressure:
+        base += 2
+    return min(24, base)
+
+
+def living_zombie_count(game: "Game") -> int:
+    return sum(1 for zombie in game.zombies if zombie.is_alive())
+
+
+def can_spawn_zombie(game: "Game", *, pressure: bool = False) -> bool:
+    return living_zombie_count(game) < active_zombie_cap(game, pressure=pressure)
+
+
+def spawn_local_zombies(
+    game: "Game",
+    center: Vector2,
+    count: int,
+    *,
+    pressure: bool = False,
+    spawn_source: str = "",
+    summon_chain_budget: int | None = None,
+) -> None:
     for _ in range(count):
+        if not can_spawn_zombie(game, pressure=pressure):
+            return
         pos = game.safe_zombie_spawn_position(center, 130, 220)
         zombie = Zombie(pos, game.day)
         zombie.anchor = Vector2(center)
-        zombie.camp_pressure = clamp((0.78 if pressure else 0.52) + center.distance_to(CAMP_CENTER) / 950, 0.25, 1.0)
+        defense = game.tower_defense_bonus() if center.distance_to(CAMP_CENTER) < game.camp_clearance_radius() + 420 else 0.0
+        zombie.camp_pressure = clamp((0.78 if pressure else 0.52) + center.distance_to(CAMP_CENTER) / 950 - defense * 0.38, 0.25, 1.0)
+        zombie.spawn_source = spawn_source
+        zombie.summon_chain_budget = summon_chain_budget
         game.zombies.append(zombie)
 
 
 def spawn_forest_ambient_zombie(game: "Game", *, anchor: Vector2 | None = None, radius: float | None = None) -> None:
+    if not can_spawn_zombie(game):
+        return
     center = Vector2(anchor) if anchor is not None else Vector2(game.player.pos)
     if radius is None:
         min_distance = 260.0
@@ -164,6 +196,9 @@ def create_horde_boss_profile(game: "Game") -> dict[str, object]:
 
 
 def spawn_night_zombie(game: "Game") -> None:
+    if not can_spawn_zombie(game, pressure=True):
+        game.spawn_budget = max(0, game.spawn_budget - 1)
+        return
     spawn_center = CAMP_CENTER
     if game.player.pos.distance_to(CAMP_CENTER) > game.camp_clearance_radius() + 320:
         spawn_center = Vector2(game.player.pos)
@@ -177,7 +212,8 @@ def spawn_night_zombie(game: "Game") -> None:
         pos = game.safe_zombie_spawn_position(spawn_center, 240, 420)
     zombie = Zombie(pos, game.day)
     zombie.anchor = Vector2(spawn_center)
-    zombie.camp_pressure = 0.92 if spawn_center == CAMP_CENTER or game.horde_active else 0.6
+    tower_pressure = game.tower_defense_bonus() * 0.42
+    zombie.camp_pressure = clamp((0.92 if spawn_center == CAMP_CENTER or game.horde_active else 0.6) - tower_pressure, 0.35, 1.0)
     game.zombies.append(zombie)
     game.spawn_budget -= 1
 

@@ -21,14 +21,14 @@ STATE_LABELS = {
     "cookhouse": "na cozinha",
     "socialize": "subindo a moral",
     "tend_fire": "cuidando do fogo",
-    "roughcut": "cortando tabuas",
+    "roughcut": "cortando tábuas",
     "guard": "de vigia",
     "watchtower": "na torre",
     "garden": "cuidando da horta",
     "workbench": "na oficina",
     "sawmill": "na serraria",
     "clinic": "na enfermaria",
-    "build_site": "levantando construcao",
+    "build_site": "levantando construção",
     "rest": "descansando",
     "sleep": "dormindo",
     "eat": "comendo",
@@ -53,7 +53,10 @@ def update_survivor(survivor, game: "Game", dt: float) -> None:
         return
     if game.is_survivor_on_expedition(survivor):
         survivor.state = "expedition"
-        survivor.state_label = "caido na trilha" if survivor.expedition_downed else "em expedicao"
+        if survivor.expedition_downed:
+            survivor.state_label = "caido na trilha"
+        elif not survivor.state_label:
+            survivor.state_label = "em expedição"
         survivor.velocity *= 0.0
         return
 
@@ -723,10 +726,11 @@ def _update_resource_trip(survivor, game: "Game", dt: float) -> None:
                 survivor.carry_bundle = {"logs": amount}
                 start_state(survivor, "deliver", game.stockpile_pos)
                 survivor.state_label = "arrastando toras"
-                game.audio.play_impact("wood", source_pos=tree["pos"])
+                if survivor.distance_to(game.player.pos) < 135:
+                    game.audio.play_impact("wood", source_pos=tree["pos"])
             else:
                 survivor.task_timer = 0.0
-                survivor.state_label = "derrubando a arvore"
+                survivor.state_label = "derrubando a árvore"
         return
 
     node = survivor.target_ref if isinstance(survivor.target_ref, ResourceNode) else None
@@ -914,7 +918,7 @@ def _update_sawmill(survivor, game: "Game", dt: float) -> None:
             produced = game.sawmill_output(survivor.role)
             if game.consume_resource("logs", 2):
                 game.add_resource_bundle({"wood": produced})
-                game.spawn_floating_text(f"+{produced} tabuas", sawmill.pos, PALETTE["accent_soft"])
+                game.spawn_floating_text(f"+{produced} tábuas", sawmill.pos, PALETTE["accent_soft"])
                 game.audio.play_interact("repair", source_pos=sawmill.pos)
                 survivor.task_timer = 0.0
                 survivor.decision_timer = 1.0
@@ -946,7 +950,7 @@ def _update_clinic(survivor, game: "Game", dt: float) -> None:
                 game.scrap -= 1
                 produced = game.clinic_medicine_output()
                 game.add_resource_bundle({"medicine": produced})
-                game.spawn_floating_text(f"+{produced} remedio", infirmary.pos, PALETTE["heal"])
+                game.spawn_floating_text(f"+{produced} remédio", infirmary.pos, PALETTE["heal"])
                 game.audio.play_interact("repair", source_pos=infirmary.pos)
             survivor.task_timer = 0.0
             survivor.decision_timer = 1.2

@@ -132,7 +132,7 @@ def draw_survivor_card(
     role = game.ui_small_font.render(game.fit_text_to_width(game.ui_small_font, role_label, width - 138), True, PALETTE["muted"])
     state_label = survivor.state_label
     if getattr(survivor, "on_expedition", False):
-        state_label = "em expedicao"
+        state_label = "em expedição"
     elif survivor.conflict_cooldown > 0:
         rival = game.rival_name(survivor)
         state_label = f"briga com {rival.lower()}" if rival else "apos briga"
@@ -187,96 +187,25 @@ def draw_survivor_card(
 
 
 def current_objectives(game) -> list[str]:
-    """Resume as prioridades imediatas do chefe conforme o estado do mundo."""
-    weakest = game.weakest_barricade_health()
-    unresolved = len(game.unresolved_interest_points())
-    active_event = game.active_dynamic_event()
-    current_region = game.current_named_region()
-    directives = []
-    if active_event:
-        directives.append(f"Crise ativa: {active_event.label}")
-        if active_event.kind == "doenca":
-            directives.append("Aproxime-se do doente com E e use a enfermaria para segurar a febre.")
-        elif active_event.kind == "incendio":
-            directives.append("Corra ate o foco do incendio e interaja antes que a estrutura ceda.")
-        elif active_event.kind == "alarme":
-            directives.append("Chegue na cerca que tremeu e use E para segurar a linha antes do rombo.")
-        elif active_event.kind == "expedicao":
-            directives.append("Siga o foguete vermelho na trilha e entregue socorro antes da equipe quebrar.")
-        elif active_event.kind == "faccao":
-            directives.append("E escolhe a saida humana. Q escolhe a saida dura e pragmatica.")
-        elif active_event.kind == "abrigo":
-            directives.append("Va ate o limite da mata e decida se ha espaco para acolher o forasteiro.")
-        else:
-            directives.append("Encontre o morador em crise e use a sua presenca para impedir a perda.")
-        return directives[:3]
-    if game.active_expedition:
-        directives.append(game.expedition_status_text(short=False) or "A equipe esta fora da base.")
-        if any(getattr(survivor, "expedition_downed", False) for survivor in game.expedition_members()):
-            directives.append("Ha gente caida na trilha. Chegue perto e use E para por o esquadrao de pe.")
-        elif str(game.active_expedition.get("skirmish_state", "")) == "active":
-            directives.append("A coluna travou combate na trilha. Intercepte os mortos antes que a equipe quebre.")
-        elif not bool(game.active_expedition.get("escort_bonus", False)):
-            directives.append("Acompanhe a caravana ate a borda da clareira para reduzir o risco da rota.")
-    phase = game.economy_phase_key()
-    if phase == "early":
-        directives.append("Fase de escassez: segure o estoque curto e aceite que a base ainda nao produz bem.")
-    elif phase == "mid":
-        directives.append("Fase de estabilizacao: serraria, cozinha e enfermaria precisam girar todo amanhecer.")
-    else:
-        directives.append("Fase de expedicoes: a base consome mais e o mapa distante virou fonte principal.")
-    if game.bonfire_heat < 28 or game.bonfire_ember_bed < 18:
-        directives.append("Reacenda a fogueira antes que o campo fique so em brasas.")
-    else:
-        directives.append("Circule pelo campo e sustente a presenca do lider.")
-    if game.logs < 10:
-        directives.append("Derrube arvores para encher o estoque de toras antes do entardecer.")
-    elif not game.buildings_of_kind("serraria") and game.logs > 0:
-        directives.append("Use a oficina para cortar algumas tabuas e destravar a serraria.")
-    elif game.wood < 12:
-        directives.append("Passe toras pela serraria para levantar tabuas de construcao.")
-    elif current_region and current_region.get("boss_blueprint") and not current_region.get("boss_defeated"):
-        boss = game.zone_boss_for_region(tuple(current_region["key"]))
-        if boss:
-            directives.append(f"{boss.boss_name} domina a regiao. Bata, recue e nao lute cansado.")
-        else:
-            directives.append(f"{current_region['name']} guarda {current_region['boss_blueprint']['name']}. Entre com estoque pronto.")
-    if game.spare_beds() <= 0 and game.camp_level < game.max_camp_level:
-        log_cost, scrap_cost = game.expansion_cost()
-        directives.append(f"Leve {log_cost} toras e {scrap_cost} sucata para ampliar a oficina.")
-    elif game.spare_beds() > 0 and len(game.survivors) < game.total_bed_capacity():
-        directives.append("Mantenha moral e defesa altas para atrair novos moradores.")
-    elif not game.buildings_of_kind("serraria"):
-        directives.append("Corte tabuas na oficina e depois erga uma serraria para ganhar escala.")
-    elif not game.buildings_of_kind("cozinha"):
-        directives.append("Monte uma cozinha para converter insumos em refeicoes de verdade.")
-    elif not game.buildings_of_kind("enfermaria"):
-        directives.append("Levante uma enfermaria para estabilizar feridos e fabricar remedios.")
-    if unresolved > 0:
-        directives.append(f"Explore {unresolved} sinal(is) perdidos alem da nevoa do mapa.")
-    elif current_region and current_region.get("boss_defeated"):
-        directives.append("A zona atual foi limpa. Avance para nomear outra regiao e achar um novo boss.")
-    elif weakest < 55:
-        directives.append("Reforce a palicada mais ferida antes da proxima investida.")
-    elif game.average_insanity() > 62:
-        directives.append("A insanidade do grupo subiu. Fogo, comida e presenca perto das barracas viraram prioridade.")
-    elif game.average_trust() < 46:
-        directives.append("A confianca no lider caiu. Circule pelo campo e reorganize a sociedade.")
-    elif game.feud_count() > 0:
-        directives.append("Existe atrito no grupo. Mantenha comida, fogo e presenca para evitar mais brigas.")
-    elif min(game.faction_standings.values()) < -24:
-        directives.append("Uma faccao humana esta azedando com a base. Pese bem a proxima decisao moral.")
-    elif game.average_health() < 72 and game.can_treat_infirmary():
-        directives.append("Leve os feridos para a enfermaria e preserve as ervas do estoque.")
-    elif game.best_expedition_region() and not game.active_expedition and game.player.pos.distance_to(game.radio_pos) < 220:
-        directives.append(f"Use o radio para enviar uma equipe a {game.best_expedition_region()['name']}.")
-    else:
-        directives.append("Colete recursos externos para o proximo amanhecer.")
-    if game.is_night:
-        directives.append("Segure os zumbis no anel defensivo." + (" Ha uma horda ativa nesta noite." if getattr(game, "horde_active", False) else ""))
-    else:
-        directives.append(f"Defina o foco comunitario com 1-4. Atual: {FOCUS_LABELS[game.focus_mode]}.")
-    return directives[:3]
+    """Mostra apenas tarefas persistentes do chefe, sem objetivos genericos."""
+    task_directives = []
+    if hasattr(game, "active_chief_tasks"):
+        if hasattr(game, "generate_chief_tasks"):
+            game.generate_chief_tasks()
+        for task in game.active_chief_tasks():
+            if task.completed and task.claimed:
+                continue
+            resource_reward = {
+                key: int(value)
+                for key, value in dict(task.reward).items()
+                if key in {"logs", "wood", "food", "herbs", "scrap", "meals", "medicine"} and int(value) > 0
+            }
+            reward = game.bundle_summary(resource_reward) if resource_reward else ""
+            suffix = f" Recompensa: {reward}." if reward else ""
+            task_directives.append(f"Tarefa: {task.title}. {task.description}{suffix}")
+            if len(task_directives) >= 3:
+                break
+    return task_directives or ["Sem tarefas ativas no momento."]
 
 
 

@@ -1,95 +1,32 @@
 # Fogueira do Fim
 
-Prototipo top-down em `pygame` focado em atmosfera, direcao visual e gestao de uma pequena sociedade em um acampamento no meio da floresta enquanto hordas de zumbis pressionam a defesa.
+Protótipo top-down em `pygame` sobre liderança, sobrevivência e gestão social em um acampamento cercado por floresta, clima hostil e mortos-vivos.
 
-## Conceito
+O jogo mistura exploração procedural, construção de base, rotina autônoma dos moradores, crises emergentes, expedições e defesa noturna. Tudo é desenhado em runtime, sem depender de assets externos.
 
-- Voce e o chefe do acampamento.
-- Cada partida monta trilhas, ruinas, pantanos, clareiras e bosques de forma procedural.
-- Cada sobrevivente tem papel proprio, necessidades e rotina diaria.
-- De dia a comunidade coleta, cozinha, reforca barricadas e organiza o campo.
-- A noite os zumbis saem da mata, testam a palicada e obrigam o lider a reagir.
-- O visual e procedural, sem assets externos: fogueira animada, neblina, paleta quente/fria e HUD cinematografica.
-- A interface agora tem tela inicial completa, menu principal navegavel e painel de configuracoes para audio, neblina, tremor e contraste da HUD.
-- O mapa agora inclui nevoa de exploracao e pontos de interesse ligados aos biomas.
-- O mundo agora continua gerando para alem da clareira, com chunks procedurais conforme voce avanca.
-- O audio agora gera efeitos, passos por terreno, clima, gemidos de horda e trilha procedural em runtime.
-- O acampamento agora tem formato quadrado e pode crescer pela oficina para abrir mais espaco util de circulacao e construcao.
-- Moradores seguem ciclos de sono, revezam vigia e novos sobreviventes podem chegar quando houver espaco e estabilidade.
-- As barracas predefinidas contam como leitos fisicos com colisao, continuam fixas quando a base cresce e o chefe tambem pode dormir para acelerar as horas enquanto o campo tenta se manter sozinho.
-- As barracas foram redesenhadas como abrigos mais completos, com leitura visual melhor no acampamento e uso claro como ponto de descanso.
-- O jogo agora mostra prompts contextuais perto do alvo interagivel mais proximo, indicando exatamente o que `E` ou `Q` vao fazer.
-- O jogo agora tem menu de construcao com barracas, torres, hortas, anexos, serrarias, cozinhas e enfermarias.
-- Vigias, cozinheiros e artesas podem se especializar automaticamente em predios do acampamento.
-- Madeira agora vem de arvores reais do mapa: cortar perto do acampamento desmata a regiao e empurra a coleta cada vez mais para longe.
-- Novos biomas e variantes de recursos aparecem longe do campo, incluindo cinzas frias, bosque gigante e pedreira morta.
-- A Fase 1 da cadeia produtiva agora esta ativa: toras entram na serraria, insumos passam pela cozinha e ervas abastecem a enfermaria.
-- O estoque central virou parte real da simulacao, com recursos brutos e processados separados no HUD e no acampamento.
-- A fogueira agora trabalha em duas camadas, `chama` e `brasa`, com combustivel pesado sustentando melhor a noite e os moradores ajudando quando o fogo cai.
-- A Fase 2 agora entrou na sociedade: cada morador tem traços, nivel de confianca no lider, exaustao acumulada e relacoes de amizade ou rivalidade.
-- Brigas podem surgir quando a pressao sobe, e laços fortes ajudam a segurar a moral ao redor da fogueira.
-- A Fase 3 agora traz crises dinamicas no proprio acampamento, incluindo fuga, doenca, incendio, desercao e pedido de abrigo.
-- A Fase 4 agora introduz faccoes humanas com reputacao persistente e encontros morais de resposta humana ou pragmatica.
-- A Fase 5 agora abre o mundo em regioes nomeadas persistentes, com bosses de zona ligados ao bioma e exploracao realmente sem borda pratica.
-- Eventos de abrigo e faccao agora trazem visitantes fisicos nos lados do acampamento, com presenca visual e fala curta quando o lider se aproxima.
-- Zumbis agora ficaram mais agressivos e variados: podem surgir na floresta durante o dia, rondar a base, chamar reforcos, formar hordas com boss e aparecer com perfis mais perigosos.
-- A sociedade agora tambem pode quebrar por dentro: moradores acumulam insanidade, rondam a base sob pressao e exigem mais presenca, fogo e estabilidade para nao desandar.
-- O lider agora pode usar diretamente estruturas erguidas na base, como serraria, cozinha, horta, anexo, torre e enfermaria.
+## Destaques
 
-## Controles
-
-- `WASD`: mover
-- `Shift`: correr
-- `Clique esquerdo` ou `Espaco`: atacar
-- `Clique esquerdo` perto de arvores: cortar e recolher madeira
-- `E`: interagir com o alvo atual, priorizando o objeto ou personagem sob o mouse quando estiver ao alcance
-- `Botao direito`: interagir diretamente com o alvo sob o mouse no acampamento
-- `E` perto de uma barraca: dormir e acelerar o tempo; qualquer comando acorda o chefe
-- `E` perto de uma crise ativa: responder ao evento antes que o tempo acabe
-- `Q` perto de uma faccao: escolher a resposta dura ou pragmatica na decisao moral
-- `E` na oficina: ampliar o acampamento quando houver toras e sucata
-- `E` perto da enfermaria: tratar o chefe usando remedios ou ervas do estoque
-- `B`: abrir ou fechar o menu de construcao
-- `1-7` com o menu aberto: selecionar o tipo de estrutura
-- `Clique esquerdo` com o menu aberto: posicionar a estrutura
-- `1`: foco equilibrado
-- `2`: foco em suprimentos
-- `3`: foco em fortificacao
-- `4`: foco em moral
-- `F5`: salvar o estado atual do acampamento
-- `F9`: carregar o ultimo save manual
-- `Enter`: iniciar ou reiniciar
-- `Setas` ou `WASD` na tela inicial: navegar pelo menu e pelas configuracoes
-- `Mouse` na tela inicial: clicar em `Continuar`, `Novo Jogo`, `Sair` e ajustar configuracoes
-- `Novo Jogo`: abre uma sequencia curta de dicas antes da partida; `Enter` avanca e `Esc` pula
-- `Esc`: abrir a confirmacao de saida, com opcao de salvar antes de fechar
-
-## Loop do jogo
-
-- Mantenha a fogueira acesa para sustentar a moral.
-- Use toras para sustentar a brasa e tabuas so para reacender rapido quando o fogo estiver fraco.
-- Observe a confianca no lider, a exaustao e os feudos do grupo na HUD social.
-- Reaja rapido a crises do campo: febre, fogo, fuga e abrigo agora competem pela sua atencao.
-- Acompanhe o humor das faccoes e use `E` ou `Q` para decidir como sua lideranca vai ser lembrada.
-- Colete toras, insumos, ervas e sucata nas redondezas.
-- Derrube arvores para obter toras e aceite que a clareira vai ficando mais vazia com o tempo.
-- Passe as toras pela serraria para transformar volume bruto em tabuas de construcao.
-- Monte cozinhas para converter insumos em refeicoes e enfermarias para transformar ervas em cura.
-- Use voce mesmo as estruturas da base quando precisar acelerar a producao: a oficina corta tabuas no comeco, a serraria processa toras, a cozinha monta refeicoes, a horta rende colheita, o anexo vira reparo rapido, a torre dispara na defesa e a enfermaria trata ou prepara remedios.
-- Repare barricadas danificadas antes do anoitecer.
-- Abra o menu de construcao para erguer barracas, torres, hortas, anexos, serrarias, cozinhas e enfermarias.
-- Use as barracas como leitos reais: moradores dormem nelas, voce tambem pode deitar e deixar a sociedade se virar por algumas horas.
-- Expanda a base para ganhar area util, nao para gerar barracas automaticas; os abrigos iniciais ficam fixos e as barricadas preservam os upgrades de spikes.
-- Use o foco comunitario para orientar a prioridade diaria da IA.
-- Explore sinais do mapa para ativar eventos de bioma e descobrir recursos raros.
-- Atravesse regioes nomeadas, leia a HUD de zona e prepare o grupo antes de despertar um boss territorial.
-- Elimine zumbis que cruzarem o anel defensivo.
-- Leia as barras de vida dos zumbis, identifique variantes mais pesadas e trate noites de horda como um evento de defesa total.
+- Mundo procedural com clareiras, ruínas, pântanos, bosques, pedreiras e regiões nomeadas.
+- Acampamento vivo com moradores que dormem, vigiam, coletam, conversam, brigam, criam laços e lembram eventos importantes.
+- Cadeia produtiva com toras, tábuas, comida, ervas, sucata, refeições e remédios.
+- Construções com função estratégica: barraca, torre, horta, anexo, serraria, cozinha, enfermaria e estoque.
+- Estoque com capacidade real, limites visíveis no HUD e perda de suprimentos quando incêndios atingem áreas de armazenamento.
+- Fogueira em duas camadas, `chama` e `brasa`, afetando moral, segurança e rotina da base.
+- Clima dinâmico com chuva, vento, neblina, efeitos visuais na câmera e impacto na atmosfera.
+- Expedições com rota física no mapa, risco de morte, retorno com recompensas e chance de trazer ameaças até a base.
+- Zumbis com comportamento agressivo, hordas, variantes e pressão crescente durante a noite.
+- Tarefas do chefe, eventos morais, facções humanas, pedidos de abrigo, doenças, deserções, incêndios e crises sociais.
+- Áudio procedural com ambiente, vento, chuva, passos, ataques, interface e tela escondida para testar sons.
 
 ## Requisitos
 
+- Python 3.12 ou compatível
+- `pygame`
+
+Instale as dependências:
+
 ```bash
-pip install pygame
+pip install -r requirements.txt
 ```
 
 ## Executar
@@ -98,43 +35,99 @@ pip install pygame
 python main.py
 ```
 
-## Estrutura
+No Windows, também funciona:
 
-- `main.py`: ponto de entrada do jogo
-- `game_settings.json`: arquivo central de configuracoes editavel, com parametros de tela, HUD, clima, ritmo do jogo e recursos iniciais
-- `game/config.py`: constantes, paleta e helpers
-- `game/models.py`: dataclasses do mundo
-- `game/input.py`: leitura e mapeamento de controles
-- `game/camera.py`: camera 2D do mundo
-- `game/audio.py`: facade de audio do jogo
-- `game/scenes.py`: estados/cenas da sessao
-- `game/actors.py`: player, sobreviventes e zumbis
-- `game/world.py`: geracao procedural e regras do mapa
-- `game/rendering.py`: desenho do mundo, HUD e telas
-- `game/session.py`: loop principal, estado e eventos
-
-## Smoke test
-
-Util para validar inicializacao sem jogar manualmente:
-
-```bash
-$env:SDL_VIDEODRIVER="dummy"
-python main.py --smoke-test
+```powershell
+py .\main.py
 ```
 
-## Configuracao Externa
+## Controles
 
-O jogo agora carrega parametros principais a partir de `game_settings.json`.
+- `WASD`: mover o chefe
+- `Shift`: correr
+- `Clique esquerdo` ou `Espaço`: atacar
+- `E`: interagir com o alvo atual
+- `Botão direito`: interagir diretamente com o alvo sob o mouse
+- `Q`: resposta dura/pragmática em eventos morais
+- `B`: abrir ou fechar o menu de construção
+- `1-8` com o menu aberto: selecionar estrutura
+- `Clique esquerdo` com o menu aberto: posicionar construção
+- `1`: foco equilibrado
+- `2`: foco em suprimentos
+- `3`: foco em fortificação
+- `4`: foco em moral
+- `Tab`: alternar HUD compacta
+- `M`: abrir painel de volume durante a partida
+- `F10`: abrir tela escondida de teste de áudio
+- `F5`: salvar
+- `F9`: carregar
+- `Enter`: confirmar, avançar dicas ou reiniciar
+- `Esc`: cancelar, pular dicas ou abrir confirmação de saída
 
-Voce pode ajustar por arquivo:
+## Loop do Jogo
 
-- tela, resolucao, `fullscreen` e `fps`
-- tamanho do mundo e centro do acampamento
-- duracao do dia e horarios de amanhecer/anoitecer
-- recursos iniciais, fogo inicial e timers base
-- sliders da HUD e audio da tela inicial
-- pesos, duracao e intensidade do sistema de clima
-- paleta e cores de papeis
+Durante o dia, organize a base, colete recursos, converse com moradores, aprove construções, mande expedições e prepare a defesa. À noite, mantenha a fogueira acesa, segure a moral e impeça que zumbis atravessem as barricadas.
+
+Prioridades importantes:
+
+- Alimente a fogueira antes da noite.
+- Transforme toras em tábuas na oficina ou na serraria.
+- Use a cozinha para preparar refeições.
+- Use a enfermaria para tratar ferimentos e preparar remédios.
+- Construa estoques para aumentar os limites de suprimentos.
+- Reforce barricadas e use torres quando houver ameaça próxima.
+- Fale com moradores para manter confiança e descobrir tensões.
+- Reaja rápido a incêndios, doenças, fugas, deserções e pedidos de socorro.
+- Leia o painel de tarefas do chefe para entender o próximo objetivo prático.
+
+## Construções
+
+- `Barraca`: aumenta a quantidade de camas.
+- `Torre`: ajuda na defesa e reduz risco de ataques.
+- `Horta`: gera comida e ervas com o tempo.
+- `Anexo`: melhora manutenção e reforço de barricadas.
+- `Serraria`: transforma toras em tábuas com mais eficiência.
+- `Cozinha`: converte insumos em refeições e ajuda a moral.
+- `Enfermaria`: trata ferimentos, doenças e prepara remédios.
+- `Estoque`: aumenta a capacidade de toras, tábuas, sucata, comida, refeições, ervas e remédios.
+
+## Smoke Test
+
+Útil para validar inicialização sem abrir janela real:
+
+```powershell
+$env:SDL_VIDEODRIVER="dummy"
+py .\main.py --smoke-test
+```
+
+## Configuração
+
+O arquivo `game_settings.json` concentra ajustes principais:
+
+- tela, resolução, fullscreen e FPS
+- tamanho do mundo e posição do acampamento
+- duração do dia e horários de amanhecer/anoitecer
+- recursos iniciais e fogo inicial
+- volumes e opções de apresentação
+- intensidade e duração dos climas
+- paleta de cores e cores de papéis
 - modo de teste com `testing.unlimited_resources`
 
-Se o arquivo estiver ausente ou com algum campo faltando, o jogo usa fallback interno em `game/config.py`.
+Se o arquivo estiver ausente ou incompleto, o jogo usa os fallbacks internos de [game/core/config.py](game/core/config.py).
+
+## Estrutura do Projeto
+
+- [main.py](main.py): ponto de entrada.
+- [game/app/session.py](game/app/session.py): estado principal da sessão e loop do jogo.
+- [game/application](game/application): fluxo de gameplay, título, carregamento e ciclo da sessão.
+- [game/core](game/core): configuração, modelos, input, câmera e cenas.
+- [game/domain](game/domain): regras de acampamento, combate, eventos, recursos e mundo.
+- [game/entities](game/entities): chefe, moradores e zumbis.
+- [game/rendering](game/rendering): mundo, HUD, telas, construções, clima e entidades.
+- [game/audio](game/audio): síntese, runtime e sistema de áudio.
+- [game/infrastructure](game/infrastructure): save/load.
+- [game/ui](game/ui): layouts e helpers de interface.
+
+## Save
+
+O save manual usa `savegame.json` na raiz do projeto. Use `F5` para salvar e `F9` para carregar durante a partida.

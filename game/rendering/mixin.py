@@ -123,15 +123,30 @@ class RenderMixin:
             ui_build_rendering.draw_build_menu(self)
         if self.exit_prompt_open and self.scenes.is_gameplay():
             ui_screen_rendering.draw_exit_prompt(self)
+        if self.gameplay_settings_open and self.scenes.is_gameplay():
+            ui_screen_rendering.draw_runtime_settings_overlay(self)
 
         if self.scenes.is_splash():
             ui_screen_rendering.draw_splash_screen(self)
         elif self.scenes.is_title():
             ui_screen_rendering.draw_title_screen(self)
+        elif self.scenes.is_loading():
+            ui_screen_rendering.draw_loading_screen(self)
         elif self.scenes.is_tips():
             ui_screen_rendering.draw_tips_screen(self)
         elif self.scenes.is_game_over():
             ui_screen_rendering.draw_game_over(self)
+
+        if getattr(self, "audio_debug_open", False):
+            ui_screen_rendering.draw_audio_debug_overlay(self)
+
+        if self.loading_overlay_active and not self.scenes.is_loading():
+            self.update_loading_overlay_state()
+            if self.loading_overlay_active:
+                ui_screen_rendering.draw_loading_screen(
+                    self,
+                    alpha_override=int(self.loading_overlay_alpha),
+                )
 
         pygame.display.flip()
 
@@ -153,8 +168,9 @@ class RenderMixin:
         value: int,
         label: str,
         color: tuple[int, int, int],
+        capacity: int | None = None,
     ) -> None:
-        hud_rendering_helpers.draw_resource_meter(self, x, y, width, value, label, color)
+        hud_rendering_helpers.draw_resource_meter(self, x, y, width, value, label, color, capacity)
 
     def draw_resource_bar(
         self,

@@ -5,7 +5,24 @@ import math
 import pygame
 from pygame import Vector2
 
-from ..core.config import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH, angle_to_vector, lerp
+from ..core.config import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH, angle_to_vector, clamp, lerp
+
+
+def _render_time(game) -> float:
+    return pygame.time.get_ticks() / 1000.0
+
+
+def _wind_state(game) -> tuple[float, float]:
+    wind = float(getattr(game, "weather_gust_strength", 0.0))
+    if wind <= 0.0 and hasattr(game, "weather_wind_factor"):
+        wind = game.weather_wind_factor()
+    storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
+    return clamp(wind + storm * 0.22, 0.0, 1.0), storm
+
+
+def _tree_seed(tree: dict[str, object]) -> float:
+    pos = Vector2(tree["pos"])
+    return (pos.x * 0.017 + pos.y * 0.031 + float(tree.get("radius", 30)) * 0.19) % math.tau
 
 
 def draw_camp(game, shake_offset: Vector2) -> None:
@@ -41,18 +58,13 @@ def draw_expedition_caravan(game, shake_offset: Vector2) -> None:
     caravan = game.expedition_caravan_state()
     if not caravan:
         return
-    start = game.world_to_screen(game.radio_pos) + shake_offset
-    edge = game.world_to_screen(game.expedition_route_edge_point()) + shake_offset
-    direction = Vector2(edge - start)
+    draw_expedition_route_hint(game, caravan, shake_offset)
+    center = game.world_to_screen(Vector2(caravan["pos"])) + shake_offset
+    direction = Vector2(caravan["dir"])
     if direction.length_squared() <= 0.01:
         return
     unit = direction.normalize()
     lateral = Vector2(-unit.y, unit.x)
-    progress = float(caravan["progress"])
-    if caravan["phase"] == "outbound":
-        center = start.lerp(edge, progress * 0.72)
-    else:
-        center = edge.lerp(start, progress * 0.72)
 
     for offset_index, offset_amount in enumerate((-18, 0, 18)):
         walker = center - unit * (16 * offset_index) + lateral * (offset_amount * 0.18)
@@ -72,7 +84,11 @@ def draw_expedition_caravan(game, shake_offset: Vector2) -> None:
     pygame.draw.circle(game.screen, (110, 98, 78), wheel_a, 2)
     pygame.draw.circle(game.screen, (110, 98, 78), wheel_b, 2)
 
-    label_text = "saindo" if caravan["phase"] == "outbound" else "voltando"
+    label_text = {
+        "outbound": "indo",
+        "scavenging": "vasculhando",
+        "inbound": "voltando",
+    }.get(str(caravan["phase"]), "na trilha")
     label = game.small_font.render(f"caravana {label_text}", True, PALETTE["text"])
     box = pygame.Rect(0, 0, label.get_width() + 10, label.get_height() + 4)
     box.midbottom = (int(center.x), int(center.y - 16))
@@ -100,6 +116,40 @@ def draw_expedition_caravan(game, shake_offset: Vector2) -> None:
         game.screen.blit(alert, alert.get_rect(center=alert_box.center))
 
 
+def draw_expedition_route_hint(game, caravan: dict[str, object], shake_offset: Vector2) -> None:
+    expedition = game.active_expedition
+    if not expedition:
+        return
+    points = [
+        game.world_to_screen(Vector2(game.radio_pos)) + shake_offset,
+        game.world_to_screen(game.expedition_route_edge_point(expedition)) + shake_offset,
+        game.world_to_screen(game.expedition_destination_point(expedition)) + shake_offset,
+    ]
+    route_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    color = (*PALETTE["accent_soft"], 56)
+    progress = float(caravan.get("route_progress", 0.0))
+    dash_phase = int((pygame.time.get_ticks() / 90) % 18)
+    for start, end in zip(points, points[1:]):
+        segment = end - start
+        length = segment.length()
+        if length <= 1:
+            continue
+        direction = segment.normalize()
+        distance = -dash_phase
+        while distance < length:
+            dash_start = max(0.0, distance)
+            dash_end = min(length, distance + 10)
+            if dash_end > 0:
+                pygame.draw.line(route_surface, color, start + direction * dash_start, start + direction * dash_end, 2)
+            distance += 18
+    current = game.world_to_screen(Vector2(caravan["pos"])) + shake_offset
+    pygame.draw.circle(route_surface, (*PALETTE["morale"], 72), current, 10, 2)
+    if progress >= 0.43:
+        destination = points[-1]
+        pygame.draw.circle(route_surface, (*PALETTE["accent_soft"], 64), destination, 14, 2)
+    game.screen.blit(route_surface, (0, 0))
+
+
 def draw_tree(game, tree: dict[str, object], shake_offset: Vector2) -> None:
     pos = game.world_to_screen(Vector2(tree["pos"])) + shake_offset
     radius = int(tree["radius"])
@@ -107,6 +157,9 @@ def draw_tree(game, tree: dict[str, object], shake_offset: Vector2) -> None:
         return
 
     if tree.get("harvested", False):
+        tick = _render_time(game)
+        wind, _storm = _wind_state(game)
+        seed = _tree_seed(tree)
         stump_rect = pygame.Rect(0, 0, int(radius * 0.9), int(radius * 0.46))
         stump_rect.center = (int(pos.x), int(pos.y + radius * 0.72))
         pygame.draw.ellipse(game.screen, (14, 18, 16), stump_rect.inflate(8, 10))
@@ -115,12 +168,25 @@ def draw_tree(game, tree: dict[str, object], shake_offset: Vector2) -> None:
         ring_rect = stump_rect.inflate(-10, -8)
         if ring_rect.width > 2 and ring_rect.height > 2:
             pygame.draw.ellipse(game.screen, (138, 110, 72), ring_rect, 1)
+        for index in range(3):
+            phase = tick * (1.2 + wind * 1.7) + seed + index * 1.9
+            blade_base = pos + Vector2((index - 1) * radius * 0.23, radius * 0.68)
+            blade_tip = blade_base + Vector2(math.sin(phase) * (2.0 + wind * 4.0), -7 - index)
+            pygame.draw.line(game.screen, (62, 104, 58), blade_base, blade_tip, 1)
         return
 
     tone = float(tree.get("tone", 0.5))
     spread = float(tree.get("spread", 1.0))
     branch_bias = float(tree.get("branch_bias", 0.0))
-    trunk_top = pos + Vector2(0, -radius * 0.88)
+    lean = float(tree.get("lean", 0.0))
+    height = float(tree.get("height", 1.0))
+    tick = _render_time(game)
+    wind, storm = _wind_state(game)
+    seed = _tree_seed(tree)
+    sway_wave = math.sin(tick * (0.34 + wind * 0.58) + seed)
+    gust_wave = math.sin(tick * (0.72 + storm * 0.42) + seed * 0.7)
+    sway = (sway_wave * (1.45 + radius * 0.028) + gust_wave * storm * 1.8) * (0.16 + wind * 0.48)
+    trunk_top = pos + Vector2(lean * radius + sway * 0.45, -radius * (0.78 + height * 0.16))
     trunk_base = pos + Vector2(0, radius * 0.68)
     trunk_half = radius * 0.2
     crown_color = (
@@ -160,27 +226,37 @@ def draw_tree(game, tree: dict[str, object], shake_offset: Vector2) -> None:
         direction = -1 if index % 2 == 0 else 1
         branch_start = trunk_top.lerp(trunk_base, 0.2 + index * 0.16)
         branch_end = branch_start + Vector2(
-            direction * radius * (0.38 + 0.12 * branch_bias),
+            direction * radius * (0.38 + 0.12 * branch_bias) + sway * (0.42 + index * 0.16),
             -radius * (0.16 + index * 0.05),
         )
         pygame.draw.line(game.screen, (74, 50, 34), branch_start, branch_end, 3)
 
     cluster_centers = [
-        trunk_top + Vector2(-radius * 0.52 * spread, radius * 0.08),
-        trunk_top + Vector2(radius * 0.1 * branch_bias, -radius * 0.38),
-        trunk_top + Vector2(radius * 0.56 * spread, -radius * 0.02),
-        trunk_top + Vector2(radius * 0.12, radius * 0.26),
+        trunk_top + Vector2(-radius * 0.52 * spread + sway * 0.82, radius * 0.08),
+        trunk_top + Vector2(radius * 0.1 * branch_bias + sway * 1.05, -radius * 0.38),
+        trunk_top + Vector2(radius * 0.56 * spread + sway * 0.9, -radius * 0.02),
+        trunk_top + Vector2(radius * 0.12 + sway * 0.66, radius * 0.26),
     ]
     cluster_sizes = [0.86, 0.78, 0.72, 0.66]
-    for center, size in zip(cluster_centers, cluster_sizes):
-        pygame.draw.circle(game.screen, crown_dark, (int(center.x), int(center.y + radius * 0.12)), int(radius * size))
-        pygame.draw.circle(game.screen, crown_color, (int(center.x), int(center.y)), int(radius * size))
+    leaf_spark = 0.78 + 0.22 * math.sin(tick * 0.72 + seed)
+    animated_light = tuple(min(255, int(channel * leaf_spark)) for channel in crown_light)
+    for index, (center, size) in enumerate(zip(cluster_centers, cluster_sizes)):
+        pulse = 1.0 + math.sin(tick * (0.46 + index * 0.06) + seed + index) * (0.014 + wind * 0.012)
+        animated_radius = int(radius * size * pulse)
+        pygame.draw.circle(game.screen, crown_dark, (int(center.x), int(center.y + radius * 0.12)), animated_radius)
+        pygame.draw.circle(game.screen, crown_color, (int(center.x), int(center.y)), animated_radius)
         pygame.draw.circle(
             game.screen,
-            crown_light,
+            animated_light,
             (int(center.x - radius * 0.22), int(center.y - radius * 0.18)),
-            int(radius * size * 0.5),
+            int(animated_radius * 0.5),
         )
+    if wind > 0.32:
+        for index in range(2):
+            drift = (tick * (8 + wind * 18) + seed * 37 + index * 29) % (radius * 2.4)
+            flutter = math.sin(tick * 1.6 + seed + index) * 1.6
+            leaf = trunk_top + Vector2(radius * 0.7 - drift + sway, radius * 0.2 + index * 12 + flutter)
+            pygame.draw.circle(game.screen, crown_light, (int(leaf.x), int(leaf.y)), 2)
 
 
 def draw_buildings(game, shake_offset: Vector2) -> None:
@@ -202,6 +278,8 @@ def draw_buildings(game, shake_offset: Vector2) -> None:
             draw_cookhouse(game, pos)
         elif building.kind == "enfermaria":
             draw_infirmary(game, pos)
+        elif building.kind == "estoque":
+            draw_storage_shed(game, pos)
 
         if building.assigned_to:
             text = game.small_font.render(building.assigned_to.lower(), True, PALETTE["text"])
@@ -215,6 +293,9 @@ def draw_buildings(game, shake_offset: Vector2) -> None:
 def draw_player_tent(game, pos: Vector2, angle: float, scale: float, tone: float = 0.5) -> None:
     forward = angle_to_vector(angle)
     side = angle_to_vector(angle + math.pi / 2)
+    tick = _render_time(game)
+    wind, _storm = _wind_state(game)
+    flap = math.sin(tick * (1.5 + wind * 2.2) + angle * 3.0 + tone * 7.0) * wind * 3.0 * scale
     base = 54 * scale
     depth = 34 * scale
     ridge = 36 * scale
@@ -232,7 +313,7 @@ def draw_player_tent(game, pos: Vector2, angle: float, scale: float, tone: float
     right = tent_back - side * base * 0.52
     front_left = pos + side * base * 0.28
     front_right = pos - side * base * 0.28
-    entrance = pos + forward * 9 * scale
+    entrance = pos + forward * 9 * scale + side * flap
 
     shadow = pygame.Rect(0, 0, int(base * 1.36), int(depth * 0.92))
     shadow.center = (int(pos.x), int(pos.y + 20 * scale))
@@ -300,8 +381,11 @@ def draw_garden_plot(game, pos: Vector2, *, ready: bool = True) -> None:
     stem_color = (62, 116, 64) if ready else (88, 92, 76)
     leaf_light = (106, 162, 82) if ready else (118, 122, 96)
     leaf_dark = (88, 148, 74) if ready else (96, 102, 82)
+    tick = _render_time(game)
+    wind, _storm = _wind_state(game)
     for index, offset in enumerate((-16, -5, 8, 19)):
-        sprout = pos + Vector2(offset, (-4, 2, 5, -1)[index])
+        sway = math.sin(tick * (1.7 + wind * 2.0) + index * 1.3 + pos.x * 0.02) * (0.8 + wind * 2.2)
+        sprout = pos + Vector2(offset + sway, (-4, 2, 5, -1)[index])
         pygame.draw.line(game.screen, stem_color, sprout + Vector2(0, 10), sprout, 2)
         pygame.draw.circle(game.screen, leaf_light, sprout + Vector2(-2, -2), 3)
         pygame.draw.circle(game.screen, leaf_dark, sprout + Vector2(2, -1), 3)
@@ -361,13 +445,21 @@ def draw_cookhouse(game, pos: Vector2) -> None:
     oven.center = (int(pos.x), int(pos.y + 8))
     pygame.draw.rect(game.screen, (70, 56, 48), oven, border_radius=5)
     pygame.draw.rect(game.screen, (38, 24, 22), oven.inflate(-8, -4), border_radius=4)
-    pygame.draw.circle(game.screen, (214, 164, 88), pos + Vector2(16, -4), 7)
-    pygame.draw.circle(game.screen, (236, 196, 116), pos + Vector2(14, -6), 4)
+    tick = _render_time(game)
+    flame_flicker = 1.0 + math.sin(tick * 7.5 + pos.x * 0.03) * 0.18
+    pygame.draw.circle(game.screen, (214, 164, 88), pos + Vector2(16, -4), int(7 * flame_flicker))
+    pygame.draw.circle(game.screen, (236, 196, 116), pos + Vector2(14, -6), int(4 * flame_flicker))
     chimney = pygame.Rect(0, 0, 8, 16)
     chimney.midbottom = (int(pos.x + 14), int(rect.y + 6))
     pygame.draw.rect(game.screen, (74, 62, 58), chimney, border_radius=2)
-    pygame.draw.circle(game.screen, (210, 210, 210), chimney.midtop + Vector2(-2, -6), 3)
-    pygame.draw.circle(game.screen, (190, 190, 190), chimney.midtop + Vector2(3, -11), 2)
+    wind, _storm = _wind_state(game)
+    for index, base_offset in enumerate((-6, -13, -20)):
+        smoke_phase = tick * (0.8 + wind) + index * 1.4
+        smoke_pos = chimney.midtop + Vector2(-2 + math.sin(smoke_phase) * (2 + wind * 5), base_offset)
+        alpha = max(70, 180 - index * 44)
+        smoke = pygame.Surface((18, 18), pygame.SRCALPHA)
+        pygame.draw.circle(smoke, (202, 202, 194, alpha), (9, 9), 3 + index)
+        game.screen.blit(smoke, smoke_pos - Vector2(9, 9))
 
 
 def draw_infirmary(game, pos: Vector2) -> None:
@@ -386,6 +478,33 @@ def draw_infirmary(game, pos: Vector2) -> None:
     pygame.draw.rect(game.screen, (98, 112, 104), cot, 1, border_radius=3)
     lamp = pos + Vector2(16, -8)
     pygame.draw.circle(game.screen, (220, 196, 124), lamp, 3)
+
+
+def draw_storage_shed(game, pos: Vector2) -> None:
+    shadow = pygame.Rect(0, 0, 66, 22)
+    shadow.center = (int(pos.x), int(pos.y + 20))
+    pygame.draw.ellipse(game.screen, (12, 16, 15), shadow)
+
+    body = pygame.Rect(0, 0, 58, 38)
+    body.center = (int(pos.x), int(pos.y + 2))
+    pygame.draw.rect(game.screen, (108, 84, 58), body, border_radius=8)
+    pygame.draw.rect(game.screen, PALETTE["wood_dark"], body, 2, border_radius=8)
+    roof = [body.midtop + Vector2(0, -16), body.topleft + Vector2(-7, 3), body.topright + Vector2(7, 3)]
+    pygame.draw.polygon(game.screen, (78, 66, 52), roof)
+    pygame.draw.polygon(game.screen, PALETTE["wood_dark"], roof, 1)
+
+    for offset in (-14, 0, 14):
+        pygame.draw.line(game.screen, (148, 122, 82), (body.x + 7, body.centery + offset * 0.18), (body.right - 7, body.centery + offset * 0.18), 2)
+    door = pygame.Rect(0, 0, 18, 24)
+    door.midbottom = (int(pos.x - 13), body.bottom - 2)
+    pygame.draw.rect(game.screen, (70, 50, 34), door, border_radius=4)
+    pygame.draw.rect(game.screen, (42, 31, 24), door, 1, border_radius=4)
+
+    crate = pygame.Rect(0, 0, 18, 14)
+    crate.center = (int(pos.x + 16), int(pos.y + 10))
+    pygame.draw.rect(game.screen, (132, 104, 68), crate, border_radius=4)
+    pygame.draw.rect(game.screen, PALETTE["wood_dark"], crate, 1, border_radius=4)
+    pygame.draw.line(game.screen, (172, 142, 96), (crate.x + 3, crate.centery), (crate.right - 3, crate.centery), 1)
 
 
 def draw_station(game, pos: Vector2, label: str, color: tuple[int, int, int], shake_offset: Vector2) -> None:
@@ -439,26 +558,33 @@ def draw_bonfire(game, shake_offset: Vector2) -> None:
         vec = angle_to_vector(angle) * 26
         pygame.draw.line(game.screen, PALETTE["wood_dark"], fire_pos - vec, fire_pos + vec, 7)
 
+    tick = _render_time(game)
+    wind, storm = _wind_state(game)
     ember_surface = pygame.Surface((140, 140), pygame.SRCALPHA)
-    ember_alpha = int((34 + ember_ratio * 42) * night_glow)
+    ember_alpha = int((8 + ember_ratio * 14) * night_glow)
     ember_radius = int(18 + ember_ratio * 8)
-    pygame.draw.circle(ember_surface, (196, 94, 54, ember_alpha), (70, 82), ember_radius)
+    for index in range(5, 0, -1):
+        ratio = index / 5
+        alpha = int(ember_alpha * (1.0 - ratio * 0.72))
+        if alpha > 0:
+            pygame.draw.circle(ember_surface, (196, 94, 54, alpha), (70, 82), int(ember_radius * (0.6 + ratio * 1.1)))
     pygame.draw.circle(
         ember_surface,
-        (226, 128, 78, int((8 + ember_ratio * 12) * night_glow)),
+        (226, 128, 78, int((5 + ember_ratio * 8) * night_glow)),
         (70, 82),
         int(ember_radius * 0.44),
     )
     game.screen.blit(ember_surface, fire_pos - Vector2(70, 70))
 
     if stage != "brasas":
-        flame_height = 14 + 28 * heat_ratio + math.sin(pygame.time.get_ticks() / 160) * (2 + heat_ratio * 2)
+        flame_height = 14 + 28 * heat_ratio + math.sin(tick * 6.2) * (2 + heat_ratio * 2)
         flame_width = 10 + 12 * heat_ratio
+        flame_lean = Vector2(wind * (8 + storm * 8) * math.sin(tick * 2.1), 0)
         pygame.draw.polygon(
             game.screen,
             (210, 122, 72),
             [
-                fire_pos + Vector2(0, -flame_height),
+                fire_pos + Vector2(0, -flame_height) + flame_lean,
                 fire_pos + Vector2(-flame_width - 4, 10),
                 fire_pos + Vector2(0, 24),
                 fire_pos + Vector2(flame_width + 4, 10),
@@ -468,16 +594,26 @@ def draw_bonfire(game, shake_offset: Vector2) -> None:
             game.screen,
             (255, 164, 96),
             [
-                fire_pos + Vector2(0, -flame_height * 0.72),
+                fire_pos + Vector2(0, -flame_height * 0.72) + flame_lean * 0.6,
                 fire_pos + Vector2(-flame_width * 0.58, 8),
                 fire_pos + Vector2(0, 18),
                 fire_pos + Vector2(flame_width * 0.58, 8),
             ],
         )
 
+        for index in range(3):
+            spark_phase = tick * (1.6 + heat_ratio) + index * 1.7
+            spark = fire_pos + Vector2(
+                math.sin(spark_phase) * (8 + wind * 14),
+                -18 - ((tick * (18 + index * 7)) % (18 + heat_ratio * 30)),
+            )
+            pygame.draw.circle(game.screen, (238, 168, 88), (int(spark.x), int(spark.y)), 1 + int(index == 0))
+
     if stage == "alta":
         lick = pygame.Surface((120, 120), pygame.SRCALPHA)
-        pygame.draw.circle(lick, (214, 110, 72, int(10 * night_glow)), (60, 48), 20)
+        for index in range(3, 0, -1):
+            ratio = index / 3
+            pygame.draw.circle(lick, (214, 110, 72, int((1.0 - ratio * 0.6) * 3 * night_glow)), (60, 48), int(10 + ratio * 14))
         game.screen.blit(lick, fire_pos - Vector2(60, 60))
 
     if game.random.random() < (0.22 + heat_ratio * 0.34 + ember_ratio * 0.12):

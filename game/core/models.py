@@ -153,6 +153,19 @@ class BuildingRequest:
 
 
 @dataclass
+class ChiefTask:
+    uid: int
+    kind: str
+    title: str
+    description: str
+    target: dict[str, object]
+    reward: dict[str, object]
+    progress: float = 0.0
+    completed: bool = False
+    claimed: bool = False
+
+
+@dataclass
 class InterestPoint:
     feature_kind: str
     event_kind: str

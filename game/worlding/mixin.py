@@ -11,12 +11,12 @@ from ..core.config import (
     ROLE_COLORS,
     clamp,
 )
-from ..domain.camp import camp_construction, camp_interactions, camp_lifecycle, camp_priorities, camp_residents, camp_social, economy
+from ..domain.camp import camp_construction, camp_interactions, camp_lifecycle, camp_priorities, camp_residents, camp_social, chief_tasks, economy
 from ..domain.combat import threats
 from ..domain.events import dynamic_events, expeditions
 from ..domain.resources import resource_gathering, resource_generation
 from ..domain.world import exploration, world_atmosphere, world_basics, world_context, world_generation, world_runtime, world_visuals, zones
-from ..core.models import Barricade, Building, BuildingRequest, DynamicEvent, InterestPoint, ResourceNode, WorldFeature
+from ..core.models import Barricade, Building, BuildingRequest, ChiefTask, DynamicEvent, InterestPoint, ResourceNode, WorldFeature
 class WorldMixin:
     def unlimited_resources_enabled(self) -> bool:
         return world_basics.unlimited_resources_enabled(self)
@@ -184,6 +184,21 @@ class WorldMixin:
     def economy_phase_label(self) -> str:
         return economy.economy_phase_label(self)
 
+    def tower_defense_bonus(self) -> float:
+        return economy.tower_defense_bonus(self)
+
+    def kitchen_morale_bonus(self) -> float:
+        return economy.kitchen_morale_bonus(self)
+
+    def infirmary_safety_bonus(self) -> float:
+        return economy.infirmary_safety_bonus(self)
+
+    def sawmill_expansion_discount(self) -> float:
+        return economy.sawmill_expansion_discount(self)
+
+    def radio_signal_bonus(self) -> float:
+        return economy.radio_signal_bonus(self)
+
     def build_cost_for(self, recipe_or_kind: dict[str, object] | str) -> tuple[int, int]:
         return economy.build_cost_for(self, recipe_or_kind)
 
@@ -253,6 +268,9 @@ class WorldMixin:
     def expedition_route_edge_point(self, expedition: dict[str, object] | None = None) -> Vector2:
         return expeditions.expedition_route_edge_point(self, expedition)
 
+    def expedition_destination_point(self, expedition: dict[str, object] | None = None) -> Vector2:
+        return expeditions.expedition_destination_point(self, expedition)
+
     def expedition_caravan_state(self) -> dict[str, object] | None:
         return expeditions.expedition_caravan_state(self)
 
@@ -264,6 +282,9 @@ class WorldMixin:
 
     def spawn_expedition_skirmish(self, pos: Vector2, count: int) -> None:
         expeditions.spawn_expedition_skirmish(self, pos, count)
+
+    def spawn_expedition_trailing_zombies(self, expedition: dict[str, object], count: int) -> None:
+        expeditions.spawn_expedition_trailing_zombies(self, expedition, count)
 
     def launch_best_expedition(self) -> tuple[bool, str]:
         return expeditions.launch_best_expedition(self)
@@ -315,6 +336,24 @@ class WorldMixin:
 
     def complete_build_request(self, request: BuildingRequest) -> Building | None:
         return camp_construction.complete_build_request(self, request)
+
+    def active_chief_tasks(self) -> list[ChiefTask]:
+        return chief_tasks.active_chief_tasks(self)
+
+    def generate_chief_tasks(self) -> None:
+        chief_tasks.generate_chief_tasks(self)
+
+    def update_chief_tasks(self) -> None:
+        chief_tasks.update_chief_tasks(self)
+
+    def complete_chief_task(self, task: ChiefTask) -> None:
+        chief_tasks.complete_chief_task(self, task)
+
+    def claim_chief_task_reward(self, task: ChiefTask) -> None:
+        chief_tasks.claim_chief_task_reward(self, task)
+
+    def notify_chief_task_progress(self, task_kind: str, **target: object) -> None:
+        chief_tasks.notify_chief_task_progress(self, task_kind, **target)
 
     def camp_sleep_slots(self) -> list[dict[str, object]]:
         return camp_construction.camp_sleep_slots(self)
@@ -680,8 +719,23 @@ class WorldMixin:
     def resolve_interest_point(self, interest_point: InterestPoint) -> None:
         world_context.resolve_interest_point(self, interest_point)
 
-    def spawn_local_zombies(self, center: Vector2, count: int, *, pressure: bool = False) -> None:
-        threats.spawn_local_zombies(self, center, count, pressure=pressure)
+    def spawn_local_zombies(
+        self,
+        center: Vector2,
+        count: int,
+        *,
+        pressure: bool = False,
+        spawn_source: str = "",
+        summon_chain_budget: int | None = None,
+    ) -> None:
+        threats.spawn_local_zombies(
+            self,
+            center,
+            count,
+            pressure=pressure,
+            spawn_source=spawn_source,
+            summon_chain_budget=summon_chain_budget,
+        )
 
     def spawn_forest_ambient_zombie(self, *, anchor: Vector2 | None = None, radius: float | None = None) -> None:
         threats.spawn_forest_ambient_zombie(self, anchor=anchor, radius=radius)
@@ -812,6 +866,15 @@ class WorldMixin:
 
     def camp_invader_zombies(self) -> list[Zombie]:
         return threats.camp_invader_zombies(self)
+
+    def active_zombie_cap(self, *, pressure: bool = False) -> int:
+        return threats.active_zombie_cap(self, pressure=pressure)
+
+    def living_zombie_count(self) -> int:
+        return threats.living_zombie_count(self)
+
+    def can_spawn_zombie(self, *, pressure: bool = False) -> bool:
+        return threats.can_spawn_zombie(self, pressure=pressure)
 
     def closest_defense_target(self, survivor: Survivor) -> Zombie | None:
         return threats.closest_defense_target(self, survivor)

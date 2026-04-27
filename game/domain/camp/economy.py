@@ -42,6 +42,26 @@ def economy_phase_label(game: "Game") -> str:
     }[game.economy_phase_key()]
 
 
+def tower_defense_bonus(game: "Game") -> float:
+    return clamp(game.building_count("torre") * 0.1, 0.0, 0.34)
+
+
+def kitchen_morale_bonus(game: "Game") -> float:
+    return min(5.0, game.building_count("cozinha") * 2.0)
+
+
+def infirmary_safety_bonus(game: "Game") -> float:
+    return clamp(game.building_count("enfermaria") * 0.12, 0.0, 0.36)
+
+
+def sawmill_expansion_discount(game: "Game") -> float:
+    return clamp(game.building_count("serraria") * 0.09, 0.0, 0.27)
+
+
+def radio_signal_bonus(game: "Game") -> float:
+    return clamp(0.08 + game.camp_level * 0.035 + game.building_count("torre") * 0.025, 0.08, 0.22)
+
+
 def build_cost_for(game: "Game", recipe_or_kind: dict[str, object] | str) -> tuple[int, int]:
     recipe = game.build_recipe_for(recipe_or_kind) if isinstance(recipe_or_kind, str) else recipe_or_kind
     phase = game.economy_phase_key()
@@ -140,12 +160,13 @@ def daily_ration_demand(game: "Game") -> int:
 
 def apply_daily_rations(game: "Game") -> tuple[int, int, int]:
     demand = game.daily_ration_demand()
+    meal_value = 3 if game.building_count("cozinha") > 0 else 2
     used_meals = 0
     used_food = 0
     while demand >= 2 and game.meals > 0:
         game.meals -= 1
         used_meals += 1
-        demand -= 2
+        demand -= meal_value
     while demand > 0 and game.food > 0:
         game.food -= 1
         used_food += 1
@@ -153,10 +174,11 @@ def apply_daily_rations(game: "Game") -> tuple[int, int, int]:
 
     deficit = max(0, demand)
     if deficit > 0:
+        deficit_penalty = max(0.55, 1.0 - game.building_count("cozinha") * 0.12)
         for survivor in game.living_survivors():
-            survivor.morale = clamp(survivor.morale - deficit * 3.8, 0, 100)
-            survivor.energy = clamp(survivor.energy - deficit * 2.5, 0, 100)
-            game.adjust_trust(survivor, -deficit * 1.0)
+            survivor.morale = clamp(survivor.morale - deficit * 3.8 * deficit_penalty, 0, 100)
+            survivor.energy = clamp(survivor.energy - deficit * 2.5 * deficit_penalty, 0, 100)
+            game.adjust_trust(survivor, -deficit * 1.0 * deficit_penalty)
     return used_meals, used_food, deficit
 
 
@@ -165,7 +187,7 @@ def stockpile_capacity(game: "Game", resource: str) -> int:
         return 9999
     base = {
         "logs": 26,
-        "wood": 34,
+        "wood": 64,
         "food": 24,
         "herbs": 12,
         "scrap": 24,
@@ -174,9 +196,18 @@ def stockpile_capacity(game: "Game", resource: str) -> int:
     }[resource]
     camp_bonus = game.camp_level * 6
     annex_bonus = game.building_count("anexo") * 8
+    stockpile_bonus = game.building_count("estoque") * {
+        "logs": 18,
+        "wood": 24,
+        "food": 12,
+        "herbs": 8,
+        "scrap": 18,
+        "meals": 10,
+        "medicine": 6,
+    }[resource]
     specialty_bonus = {
         "logs": game.building_count("serraria") * 8,
-        "wood": game.building_count("serraria") * 6,
+        "wood": game.building_count("serraria") * 12,
         "food": game.building_count("cozinha") * 5 + game.building_count("horta") * 4,
         "herbs": game.building_count("enfermaria") * 4,
         "scrap": game.building_count("anexo") * 4,
@@ -184,7 +215,7 @@ def stockpile_capacity(game: "Game", resource: str) -> int:
         "medicine": game.building_count("enfermaria") * 5,
     }[resource]
     bed_bonus = game.building_count("barraca") * 2
-    return base + camp_bonus + annex_bonus + specialty_bonus + bed_bonus
+    return base + camp_bonus + annex_bonus + stockpile_bonus + specialty_bonus + bed_bonus
 
 
 def normalize_stockpile(game: "Game") -> None:
@@ -255,7 +286,7 @@ def add_fuel_to_bonfire(game: "Game") -> tuple[bool, str, tuple[int, int, int]]:
         game.bonfire_heat = clamp(game.bonfire_heat + 10, 0, 100)
         game.bonfire_ember_bed = clamp(game.bonfire_ember_bed + 7, 0, 100)
         return True, "tabua no fogo", PALETTE["light"]
-    return False, "sem combustivel", PALETTE["danger_soft"]
+    return False, "sem combustível", PALETTE["danger_soft"]
 
 
 def bonfire_stage(game: "Game") -> str:

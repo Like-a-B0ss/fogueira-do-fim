@@ -34,7 +34,6 @@ def build_sound_bank(audio) -> dict[str, list[pygame.mixer.Sound]]:
         "ambient_day": [make_day_bird(audio, seed) for seed in (68, 69, 70)],
         "ambient_wind": [make_ambient_wind(audio, seed) for seed in (71, 72, 73)],
         "ambient_rain": [make_ambient_rain(audio, seed) for seed in (74, 75, 76)],
-        "ambient_grove": [make_ambient_grove(audio, seed) for seed in (77, 78, 79)],
         "ambient_swamp": [make_ambient_swamp(audio, seed) for seed in (80, 81, 82)],
         "ambient_ruin": [make_ambient_ruin(audio, seed) for seed in (83, 84, 85)],
         "ambient_dread": [make_ambient_dread(audio, seed) for seed in (86, 87, 88)],
@@ -45,6 +44,10 @@ def build_sound_bank(audio) -> dict[str, list[pygame.mixer.Sound]]:
         "music_dread": [make_music_dread(audio, seed) for seed in (107, 108)],
         "music_threat": [make_music_threat(audio, seed) for seed in (103, 104)],
         "music_horde": [make_music_horde(audio, seed) for seed in (105, 106)],
+        "music_frontend_veil": [make_music_frontend(audio, seed, "veil") for seed in (109, 110, 111)],
+        "music_frontend_lift": [make_music_frontend(audio, seed, "lift") for seed in (112, 113, 114)],
+        "music_frontend_glow": [make_music_frontend(audio, seed, "glow") for seed in (115, 116, 117)],
+        "music_frontend_resolve": [make_music_frontend(audio, seed, "resolve") for seed in (118, 119, 120)],
     }
 
 
@@ -431,10 +434,11 @@ def make_day_bird(audio, seed: int) -> pygame.mixer.Sound:
 def make_ambient_wind(audio, seed: int) -> pygame.mixer.Sound:
     return synth(
         audio,
-        0.88,
+        1.65,
         [
-            {"waveform": "noise", "duration": 0.88, "volume": 0.1, "attack": 0.08, "decay": 0.16, "sustain_level": 0.18, "release": 0.2, "seed": seed},
-            {"waveform": "sine", "start": 0.04, "duration": 0.7, "start_freq": 220 + seed * 2, "end_freq": 148 + seed, "volume": 0.035, "attack": 0.1, "decay": 0.12, "sustain_level": 0.1, "release": 0.18, "seed": seed * 3},
+            {"waveform": "noise", "duration": 1.55, "volume": 0.045, "attack": 0.42, "decay": 0.28, "sustain_level": 0.2, "release": 0.42, "seed": seed},
+            {"waveform": "sine", "start": 0.08, "duration": 1.42, "start_freq": 116 + seed, "end_freq": 84 + seed, "volume": 0.05, "attack": 0.36, "decay": 0.22, "sustain_level": 0.16, "release": 0.38, "vibrato_rate": 0.8, "vibrato_depth": 0.025, "seed": seed * 3},
+            {"waveform": "triangle", "start": 0.28, "duration": 1.0, "start_freq": 174 + seed, "end_freq": 132 + seed, "volume": 0.018, "attack": 0.24, "decay": 0.18, "sustain_level": 0.08, "release": 0.28, "seed": seed * 7},
         ],
     )
 
@@ -442,12 +446,11 @@ def make_ambient_wind(audio, seed: int) -> pygame.mixer.Sound:
 def make_ambient_rain(audio, seed: int) -> pygame.mixer.Sound:
     return synth(
         audio,
-        0.72,
+        1.45,
         [
-            {"waveform": "noise", "duration": 0.72, "volume": 0.11, "attack": 0.03, "decay": 0.06, "sustain_level": 0.22, "release": 0.12, "seed": seed},
-            {"waveform": "noise", "start": 0.05, "duration": 0.1, "volume": 0.06, "attack": 0.001, "decay": 0.008, "sustain_level": 0.0, "release": 0.016, "seed": seed * 5},
-            {"waveform": "noise", "start": 0.22, "duration": 0.08, "volume": 0.05, "attack": 0.001, "decay": 0.008, "sustain_level": 0.0, "release": 0.016, "seed": seed * 7},
-            {"waveform": "noise", "start": 0.44, "duration": 0.08, "volume": 0.05, "attack": 0.001, "decay": 0.008, "sustain_level": 0.0, "release": 0.016, "seed": seed * 11},
+            {"waveform": "noise", "duration": 1.38, "volume": 0.052, "attack": 0.18, "decay": 0.16, "sustain_level": 0.24, "release": 0.26, "seed": seed},
+            {"waveform": "sine", "start": 0.1, "duration": 1.12, "start_freq": 920 + seed * 3, "end_freq": 760 + seed * 2, "volume": 0.018, "attack": 0.16, "decay": 0.12, "sustain_level": 0.08, "release": 0.2, "vibrato_rate": 4.0, "vibrato_depth": 0.01, "seed": seed * 5},
+            {"waveform": "noise", "start": 0.36, "duration": 0.42, "volume": 0.014, "attack": 0.04, "decay": 0.08, "sustain_level": 0.05, "release": 0.12, "seed": seed * 7},
         ],
     )
 
@@ -455,10 +458,10 @@ def make_ambient_rain(audio, seed: int) -> pygame.mixer.Sound:
 def make_ambient_grove(audio, seed: int) -> pygame.mixer.Sound:
     return synth(
         audio,
-        0.62,
+        0.92,
         [
-            {"waveform": "noise", "duration": 0.4, "volume": 0.07, "attack": 0.02, "decay": 0.03, "sustain_level": 0.08, "release": 0.08, "seed": seed},
-            {"waveform": "triangle", "start": 0.16, "duration": 0.22, "start_freq": 292 + seed * 2, "end_freq": 182 + seed, "volume": 0.03, "attack": 0.02, "decay": 0.03, "sustain_level": 0.06, "release": 0.06, "seed": seed * 5},
+            {"waveform": "noise", "duration": 0.78, "volume": 0.032, "attack": 0.18, "decay": 0.12, "sustain_level": 0.1, "release": 0.22, "seed": seed},
+            {"waveform": "triangle", "start": 0.2, "duration": 0.44, "start_freq": 238 + seed, "end_freq": 176 + seed, "volume": 0.018, "attack": 0.08, "decay": 0.08, "sustain_level": 0.08, "release": 0.16, "seed": seed * 5},
         ],
     )
 
@@ -582,6 +585,213 @@ def make_music_horde(audio, seed: int) -> pygame.mixer.Sound:
             {"waveform": "noise", "start": 0.0, "duration": 0.12, "volume": 0.016, "attack": 0.005, "decay": 0.016, "sustain_level": 0.0, "release": 0.024, "seed": seed * 7},
         ],
     )
+
+
+def make_music_frontend(audio, seed: int, profile: str = "veil") -> pygame.mixer.Sound:
+    phrase_index = max(0, seed - 109)
+    root = 140.0 + (phrase_index % 4) * 5.0
+    sub = root * 0.5
+    minor_third = root * 1.2
+    fourth = root * 4.0 / 3.0
+    fifth = root * 1.5
+    octave = root * 2.0
+    ninth = root * 2.24
+
+    shared_layers = [
+        {
+            "waveform": "sine",
+            "start": 0.0,
+            "duration": 2.9,
+            "start_freq": sub,
+            "end_freq": sub * 0.95,
+            "volume": 0.07,
+            "attack": 0.22,
+            "decay": 0.34,
+            "sustain_level": 0.18,
+            "release": 0.48,
+            "vibrato_rate": 0.16,
+            "vibrato_depth": 0.01,
+            "seed": seed * 3,
+        },
+        {
+            "waveform": "triangle",
+            "start_freq": root,
+            "end_freq": root * 0.98,
+            "volume": 0.095,
+            "attack": 0.24,
+            "decay": 0.4,
+            "sustain_level": 0.24,
+            "release": 0.62,
+            "vibrato_rate": 0.22,
+            "vibrato_depth": 0.01,
+            "harmonics": ((2.0, 0.08), (3.0, 0.03)),
+            "seed": seed,
+        },
+        {
+            "waveform": "noise",
+            "start": 0.0,
+            "duration": 0.2,
+            "volume": 0.01,
+            "attack": 0.03,
+            "decay": 0.05,
+            "sustain_level": 0.0,
+            "release": 0.08,
+            "seed": seed * 17,
+        },
+    ]
+
+    profile_layers = {
+        "veil": [
+            {
+                "waveform": "saw",
+                "start": 0.46,
+                "duration": 1.84,
+                "start_freq": minor_third,
+                "end_freq": fourth,
+                "volume": 0.06,
+                "attack": 0.18,
+                "decay": 0.24,
+                "sustain_level": 0.14,
+                "release": 0.34,
+                "harmonics": ((2.0, 0.04),),
+                "seed": seed * 5,
+            },
+            {
+                "waveform": "sine",
+                "start": 1.66,
+                "duration": 1.44,
+                "start_freq": fifth,
+                "end_freq": octave,
+                "volume": 0.046,
+                "attack": 0.12,
+                "decay": 0.18,
+                "sustain_level": 0.12,
+                "release": 0.28,
+                "vibrato_rate": 3.2,
+                "vibrato_depth": 0.012,
+                "seed": seed * 7,
+            },
+        ],
+        "lift": [
+            {
+                "waveform": "triangle",
+                "start": 0.38,
+                "duration": 1.64,
+                "start_freq": minor_third,
+                "end_freq": fifth,
+                "volume": 0.072,
+                "attack": 0.14,
+                "decay": 0.22,
+                "sustain_level": 0.16,
+                "release": 0.32,
+                "vibrato_rate": 0.42,
+                "vibrato_depth": 0.012,
+                "seed": seed * 5,
+            },
+            {
+                "waveform": "sine",
+                "start": 1.28,
+                "duration": 1.6,
+                "start_freq": fifth,
+                "end_freq": ninth,
+                "volume": 0.056,
+                "attack": 0.12,
+                "decay": 0.18,
+                "sustain_level": 0.12,
+                "release": 0.26,
+                "vibrato_rate": 3.8,
+                "vibrato_depth": 0.014,
+                "seed": seed * 11,
+            },
+        ],
+        "glow": [
+            {
+                "waveform": "triangle",
+                "start": 0.26,
+                "duration": 1.28,
+                "start_freq": fourth,
+                "end_freq": fifth,
+                "volume": 0.068,
+                "attack": 0.12,
+                "decay": 0.18,
+                "sustain_level": 0.14,
+                "release": 0.22,
+                "seed": seed * 5,
+            },
+            {
+                "waveform": "sine",
+                "start": 0.94,
+                "duration": 1.84,
+                "start_freq": octave,
+                "end_freq": ninth,
+                "volume": 0.058,
+                "attack": 0.1,
+                "decay": 0.16,
+                "sustain_level": 0.12,
+                "release": 0.28,
+                "vibrato_rate": 4.2,
+                "vibrato_depth": 0.012,
+                "seed": seed * 13,
+            },
+            {
+                "waveform": "noise",
+                "start": 2.32,
+                "duration": 0.16,
+                "volume": 0.008,
+                "attack": 0.02,
+                "decay": 0.04,
+                "sustain_level": 0.0,
+                "release": 0.05,
+                "seed": seed * 19,
+            },
+        ],
+        "resolve": [
+            {
+                "waveform": "saw",
+                "start": 0.52,
+                "duration": 1.34,
+                "start_freq": fifth,
+                "end_freq": minor_third,
+                "volume": 0.062,
+                "attack": 0.14,
+                "decay": 0.22,
+                "sustain_level": 0.12,
+                "release": 0.26,
+                "harmonics": ((2.0, 0.04),),
+                "seed": seed * 5,
+            },
+            {
+                "waveform": "triangle",
+                "start": 1.56,
+                "duration": 1.56,
+                "start_freq": fourth,
+                "end_freq": root,
+                "volume": 0.058,
+                "attack": 0.12,
+                "decay": 0.18,
+                "sustain_level": 0.12,
+                "release": 0.3,
+                "vibrato_rate": 0.36,
+                "vibrato_depth": 0.012,
+                "seed": seed * 7,
+            },
+            {
+                "waveform": "sine",
+                "start": 2.56,
+                "duration": 0.9,
+                "start_freq": octave,
+                "end_freq": fifth,
+                "volume": 0.042,
+                "attack": 0.08,
+                "decay": 0.12,
+                "sustain_level": 0.08,
+                "release": 0.2,
+                "seed": seed * 11,
+            },
+        ],
+    }
+
+    return synth(audio, 3.72, shared_layers + profile_layers.get(profile, profile_layers["veil"]))
 
 
 

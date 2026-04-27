@@ -7,6 +7,7 @@ __all__ = [
     "camp_priorities",
     "camp_residents",
     "camp_social",
+    "chief_tasks",
     "economy",
 ]
 

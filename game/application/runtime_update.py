@@ -27,7 +27,7 @@ def update(game: "Game", dt: float) -> None:
         game.update_background_simulation(dt)
         return
 
-    if game.exit_prompt_open and game.scenes.is_gameplay():
+    if (game.exit_prompt_open or getattr(game, "gameplay_settings_open", False)) and game.scenes.is_gameplay():
         return
 
     if not game.scenes.allows_world_update:
@@ -58,6 +58,7 @@ def update(game: "Game", dt: float) -> None:
     game.prune_build_requests()
     game.assign_building_specialists()
     game.update_dynamic_events(sim_dt)
+    game.update_chief_tasks()
     game.update_survivor_barks(sim_dt)
     game.update_active_expedition(sim_dt)
     game.resolve_actor_camp_collision(game.player)
@@ -96,17 +97,21 @@ def update(game: "Game", dt: float) -> None:
             if game.horde_active:
                 base_interval = 3.45 if game.day <= 3 else 3.05
                 min_interval = 1.45
+            elif game.day <= 2:
+                base_interval = 7.2 if game.day == 1 else 6.1
+                min_interval = 4.2
             else:
                 base_interval = 4.9 if game.day <= 3 else 4.1
                 min_interval = 1.8
-            game.spawn_timer = max(min_interval, base_interval - game.day * 0.06)
+            tower_delay = game.tower_defense_bonus() * 2.2
+            game.spawn_timer = max(min_interval, base_interval + tower_delay - game.day * 0.06)
     else:
         game.day_spawn_timer -= sim_dt
         if (
             game.day_spawn_timer <= 0
             and game.day >= 3
             and game.player.pos.distance_to(CAMP_CENTER) > game.camp_clearance_radius() + 220
-            and len(game.zombies) < 10
+            and game.can_spawn_zombie()
             and game.random.random() < (0.18 if game.day <= 4 else 0.28)
         ):
             game.spawn_forest_ambient_zombie()
@@ -117,28 +122,40 @@ def update(game: "Game", dt: float) -> None:
     if game.player_sleeping:
         game.player_sleep_elapsed += sim_dt
         if game.active_dynamic_events:
-            game.wake_player("Uma crise bateu no campo e arrancou voce do sono.")
+            game.wake_player("Uma crise bateu no campo e arrancou você do sono.")
         elif game.find_closest_zombie(game.player.pos, 160):
-            game.wake_player("Barulho demais perto das barracas. Voce acordou no susto.")
+            game.wake_player("Barulho demais perto das barracas. Você acordou no susto.")
         if (
             game.player.stamina >= game.player.max_stamina - 1
             and game.player.health >= game.player.max_health - 1
             and game.player_sleep_elapsed >= 60
         ):
-            game.wake_player("Voce acordou depois de algumas horas e o campo ainda segue de pe.")
+            game.wake_player("Você acordou depois de algumas horas e o campo ainda segue de pé.")
 
-    if game.average_morale() <= 8:
+    defeat_reason = evaluate_defeat_reason(game)
+    if defeat_reason:
+        game.game_over_reason = defeat_reason
+        game.set_event_message(defeat_reason, duration=8.0)
         game.scenes.change("game_over")
         game.audio.play_alert()
-    if not game.player.is_alive():
-        game.scenes.change("game_over")
-        game.audio.play_alert()
-    if not game.living_survivors():
-        game.scenes.change("game_over")
-        game.audio.play_alert()
+        return
 
     game.camera.center_on(game.player.pos)
     game.audio.update(game, dt)
+
+
+def evaluate_defeat_reason(game: "Game") -> str | None:
+    if not game.player.is_alive():
+        return "O chefe caiu antes de conseguir manter a clareira de pé."
+
+    alive_survivors = [survivor for survivor in game.survivors if survivor.is_alive()]
+    if not alive_survivors:
+        return "Não restou nenhum morador vivo para manter a sociedade."
+
+    if game.average_morale() <= 0:
+        return "A moral zerou e a sociedade desfez."
+
+    return None
 
 
 def update_background_simulation(game: "Game", dt: float) -> None:

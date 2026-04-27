@@ -47,6 +47,25 @@ def hud_toggle_rect(_game) -> pygame.Rect:
     return pygame.Rect(SCREEN_WIDTH // 2 + 240, HUD_MARGIN + 12, 28, 24)
 
 
+def runtime_panel_rect(_game) -> pygame.Rect:
+    return pygame.Rect(SCREEN_WIDTH // 2 + 204, HUD_MARGIN + 12, 32, 24)
+
+
+def gameplay_runtime_layout(game) -> dict[str, object]:
+    panel = pygame.Rect(0, 0, 420, 244)
+    panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+    close = pygame.Rect(panel.right - 108, panel.y + 18, 84, 30)
+    rows = []
+    top = panel.y + 76
+    for index, _entry in enumerate(game.gameplay_setting_entries):
+        row = pygame.Rect(panel.x + 20, top + index * 46, panel.width - 40, 34)
+        minus = pygame.Rect(row.right - 128, row.y + 6, 24, 22)
+        plus = pygame.Rect(row.right - 30, row.y + 6, 24, 22)
+        value_box = pygame.Rect(row.right - 96, row.y + 6, 58, 22)
+        rows.append({"row": row, "minus": minus, "plus": plus, "value": value_box})
+    return {"panel": panel, "close": close, "setting_rows": rows}
+
+
 def tips_ui_layout(_game) -> dict[str, pygame.Rect]:
     panel = pygame.Rect(0, 0, min(1120, SCREEN_WIDTH - 120), min(620, SCREEN_HEIGHT - 120))
     panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
@@ -87,18 +106,22 @@ def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
     """Centraliza a geometria do painel inferior de conversa."""
     right_column_x = SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_MARGIN
     panel_width = max(420, right_column_x - HUD_PANEL_GAP - HUD_MARGIN)
-    panel = pygame.Rect(HUD_MARGIN, SCREEN_HEIGHT - 174, panel_width, 156)
-    header = pygame.Rect(panel.x + 14, panel.y + 10, panel.width - 28, 26)
-    viewport = pygame.Rect(panel.x + 14, panel.y + 42, panel.width - 36, 70)
-    scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)
-    buttons = []
     survivor = _game.active_dialog_survivor()
     option_count = len(_game.conversation_options_for_survivor(survivor)) if survivor else 0
     columns = 3 if option_count > 4 else 2
-    button_gap = 6
+    button_gap = 8
+    button_height = 30 if survivor else 22
+    button_rows = max(0, (max(4, option_count) + columns - 1) // columns) if survivor else 0
+    button_block_height = button_rows * button_height + max(0, button_rows - 1) * button_gap
+    panel_height = max(226, 172 + button_block_height) if survivor else 156
+    panel = pygame.Rect(HUD_MARGIN, SCREEN_HEIGHT - panel_height - HUD_MARGIN, panel_width, panel_height)
+    header = pygame.Rect(panel.x + 14, panel.y + 10, panel.width - 28, 26)
+    viewport_bottom = panel.bottom - (button_block_height + 24 if survivor else 44)
+    viewport = pygame.Rect(panel.x + 14, panel.y + 42, panel.width - 36, max(54, viewport_bottom - (panel.y + 42)))
+    scrollbar = pygame.Rect(panel.right - 16, viewport.y, 8, viewport.height)
+    buttons = []
     button_width = (panel.width - 28 - button_gap * (columns - 1)) // columns
-    button_height = 22
-    top = viewport.bottom + 8
+    top = panel.bottom - button_block_height - 14 if survivor else viewport.bottom + 8
     for index in range(max(4, option_count)):
         col = index % columns
         row = index // columns
@@ -231,6 +254,11 @@ def handle_hud_input(game) -> bool:
     """Permite alternar a densidade da HUD pelo mouse sem conflitar com o mundo."""
     if not game.scenes.is_gameplay() or not game.input_state.attack_pressed:
         return False
+    runtime_rect = runtime_panel_rect(game)
+    if runtime_rect.collidepoint(game.input_state.mouse_screen):
+        game.gameplay_settings_open = not game.gameplay_settings_open
+        game.audio.play_ui("focus" if game.gameplay_settings_open else "back")
+        return True
     toggle = hud_toggle_rect(game)
     if toggle.collidepoint(game.input_state.mouse_screen):
         game.hud_compact_mode = not game.hud_compact_mode
@@ -241,6 +269,61 @@ def handle_hud_input(game) -> bool:
         )
         return True
     return False
+
+
+def handle_runtime_settings_input(game) -> bool:
+    if not game.gameplay_settings_open:
+        return False
+    layout = gameplay_runtime_layout(game)
+    mouse_pos = game.input_state.mouse_screen
+    clicked = game.input_state.attack_pressed
+    hovered_setting = next(
+        (index for index, row in enumerate(layout["setting_rows"]) if row["row"].collidepoint(mouse_pos)),
+        None,
+    )
+
+    if game.input_state.cancel_pressed or game.input_state.runtime_panel_pressed:
+        game.gameplay_settings_open = False
+        game.audio.play_ui("back")
+        return True
+
+    if hovered_setting is not None and hovered_setting != game.gameplay_setting_index:
+        game.gameplay_setting_index = hovered_setting
+
+    if game.input_state.menu_up:
+        game.gameplay_setting_index = (game.gameplay_setting_index - 1) % len(game.gameplay_setting_entries)
+        game.audio.play_ui("focus")
+        return True
+    if game.input_state.menu_down:
+        game.gameplay_setting_index = (game.gameplay_setting_index + 1) % len(game.gameplay_setting_entries)
+        game.audio.play_ui("focus")
+        return True
+    if game.input_state.menu_left or game.input_state.menu_right:
+        key, _, step, low, high = game.gameplay_setting_entries[game.gameplay_setting_index]
+        direction = -1.0 if game.input_state.menu_left else 1.0
+        game.adjust_runtime_setting(str(key), float(step) * direction, float(low), float(high))
+        game.audio.play_ui("focus")
+        return True
+
+    if clicked and layout["close"].collidepoint(mouse_pos):
+        game.gameplay_settings_open = False
+        game.audio.play_ui("back")
+        return True
+
+    if clicked and hovered_setting is not None:
+        key, _, step, low, high = game.gameplay_setting_entries[hovered_setting]
+        setting_ui = layout["setting_rows"][hovered_setting]
+        if setting_ui["minus"].collidepoint(mouse_pos):
+            game.adjust_runtime_setting(str(key), -float(step), float(low), float(high))
+            game.audio.play_ui("focus")
+            return True
+        if setting_ui["plus"].collidepoint(mouse_pos):
+            game.adjust_runtime_setting(str(key), float(step), float(low), float(high))
+            game.audio.play_ui("focus")
+            return True
+        return True
+
+    return True
 
 
 

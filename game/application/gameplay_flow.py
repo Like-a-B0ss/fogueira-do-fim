@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pygame
 from pygame import Vector2
 
 from ..core.config import PALETTE
@@ -18,7 +19,7 @@ def begin_player_sleep(game: "Game", slot: dict[str, object]) -> None:
     game.player.pos = Vector2(slot["sleep_pos"])
     game.build_menu_open = False
     game.set_event_message(
-        "Voce deitou na barraca. O tempo corre e a sociedade segura o campo sem ordens diretas.",
+        "Você deitou na barraca. O tempo corre e a sociedade segura o campo sem ordens diretas.",
         duration=5.8,
     )
     game.spawn_floating_text("dormindo", game.player.pos, PALETTE["muted"])
@@ -38,8 +39,74 @@ def wake_player(game: "Game", message: str | None = None) -> None:
         game.spawn_floating_text("acordado", game.player.pos, PALETTE["accent_soft"])
 
 
+def audio_debug_rows(game: "Game") -> tuple[list[str], pygame.Rect, int, int]:
+    cues = game.audio.debug_cue_names() if hasattr(game.audio, "debug_cue_names") else []
+    screen_width, screen_height = game.screen.get_size()
+    panel = pygame.Rect(0, 0, min(760, screen_width - 80), min(660, screen_height - 80))
+    panel.center = (screen_width // 2, screen_height // 2)
+    row_height = 28
+    visible_rows = max(1, (panel.height - 118) // row_height)
+    return cues, panel, row_height, visible_rows
+
+
+def handle_audio_debug_input(game: "Game") -> bool:
+    if game.input_state.audio_debug_pressed:
+        game.audio_debug_open = not getattr(game, "audio_debug_open", False)
+        game.audio_debug_index = 0
+        game.audio_debug_scroll = 0
+        game.audio.play_ui("focus" if game.audio_debug_open else "back")
+        return True
+    if not getattr(game, "audio_debug_open", False):
+        return False
+
+    cues, panel, row_height, visible_rows = audio_debug_rows(game)
+    if not cues:
+        if game.input_state.cancel_pressed:
+            game.audio_debug_open = False
+            game.audio.play_ui("back")
+        return True
+
+    if game.input_state.cancel_pressed:
+        game.audio_debug_open = False
+        game.audio.play_ui("back")
+        return True
+    if game.input_state.menu_up:
+        game.audio_debug_index = max(0, game.audio_debug_index - 1)
+        game.audio.play_ui("focus")
+    if game.input_state.menu_down:
+        game.audio_debug_index = min(len(cues) - 1, game.audio_debug_index + 1)
+        game.audio.play_ui("focus")
+    if game.input_state.mouse_wheel_y:
+        game.audio_debug_index = max(0, min(len(cues) - 1, game.audio_debug_index - game.input_state.mouse_wheel_y))
+    if game.input_state.confirm_pressed or game.input_state.interact_pressed:
+        game.audio.play_debug_cue(cues[game.audio_debug_index])
+
+    game.audio_debug_scroll = max(0, min(game.audio_debug_scroll, max(0, len(cues) - visible_rows)))
+    if game.audio_debug_index < game.audio_debug_scroll:
+        game.audio_debug_scroll = game.audio_debug_index
+    elif game.audio_debug_index >= game.audio_debug_scroll + visible_rows:
+        game.audio_debug_scroll = game.audio_debug_index - visible_rows + 1
+
+    if game.input_state.attack_pressed:
+        mouse_pos = game.input_state.mouse_screen
+        list_top = panel.y + 74
+        list_rect = pygame.Rect(panel.x + 18, list_top, panel.width - 36, visible_rows * row_height)
+        if list_rect.collidepoint(mouse_pos):
+            row = int((mouse_pos.y - list_top) // row_height)
+            index = game.audio_debug_scroll + row
+            if 0 <= index < len(cues):
+                game.audio_debug_index = index
+                game.audio.play_debug_cue(cues[index])
+        return True
+
+    return True
+
+
 def handle_events(game: "Game") -> None:
     game.input_state = game.input.poll()
+
+    if handle_audio_debug_input(game):
+        return
 
     if game.input_state.quit_requested:
         if game.scenes.is_gameplay():
@@ -57,6 +124,10 @@ def handle_events(game: "Game") -> None:
             return
         if game.scenes.is_title() and game.title_settings_open:
             game.title_settings_open = False
+            game.audio.play_ui("back")
+            return
+        if game.scenes.is_gameplay() and game.gameplay_settings_open:
+            game.gameplay_settings_open = False
             game.audio.play_ui("back")
             return
         if game.scenes.is_gameplay() and game.active_dialog_survivor():
@@ -82,7 +153,7 @@ def handle_events(game: "Game") -> None:
             or game.input_state.interact_pressed
             or game.input_state.attack_pressed
             or game.input_state.alt_interact_pressed
-        ) and game.splash_elapsed >= 0.45:
+        ) and game.splash_elapsed >= 2.4:
             game.splash_elapsed = game.splash_min_duration
             game.title_intro_alpha = 0.0
             game.scenes.change("title")
@@ -102,6 +173,11 @@ def handle_events(game: "Game") -> None:
         return
 
     if not game.scenes.is_gameplay():
+        return
+
+    if game.input_state.runtime_panel_pressed:
+        game.gameplay_settings_open = not game.gameplay_settings_open
+        game.audio.play_ui("focus" if game.gameplay_settings_open else "back")
         return
 
     if game.input_state.load_pressed:
@@ -139,7 +215,7 @@ def handle_events(game: "Game") -> None:
             or game.input_state.build_menu_pressed
             or game.input_state.focus_slot is not None
         ):
-            game.wake_player("Voce acordou e retomou o controle da clareira.")
+            game.wake_player("Você acordou e retomou o controle da clareira.")
         return
 
     if game.handle_chat_panel_input():
@@ -149,6 +225,9 @@ def handle_events(game: "Game") -> None:
         return
 
     if game.handle_hud_input():
+        return
+
+    if game.handle_runtime_settings_input():
         return
 
     if game.input_state.hud_toggle_pressed:

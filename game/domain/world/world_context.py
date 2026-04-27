@@ -85,7 +85,12 @@ def resolve_interest_point(game: "Game", interest_point: "InterestPoint") -> Non
         game.set_event_message("Ferramentas velhas renderam sucata e reforcaram a defesa.")
     elif interest_point.event_kind == "alarm_nest":
         game.add_resource_bundle({"scrap": 1})
-        game.spawn_local_zombies(interest_point.pos, 2)
+        game.spawn_local_zombies(
+            interest_point.pos,
+            2,
+            spawn_source="alarm_nest",
+            summon_chain_budget=1,
+        )
         game.screen_shake = max(game.screen_shake, 3.2)
         game.set_event_message("A sirene morta chiou e puxou dois zumbis da mata.")
         game.audio.play_alert(source_pos=interest_point.pos)
@@ -96,6 +101,7 @@ def resolve_interest_point(game: "Game", interest_point: "InterestPoint") -> Non
     game.spawn_floating_text(interest_point.label, interest_point.pos, PALETTE["accent_soft"])
     game.emit_embers(interest_point.pos, 4, smoky=True)
     game.audio.play_interact(source_pos=interest_point.pos)
+    game.notify_chief_task_progress("explore_interest")
 
 
 def update_player_biome(game: "Game") -> None:

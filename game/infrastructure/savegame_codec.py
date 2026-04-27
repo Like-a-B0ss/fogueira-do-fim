@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from pygame import Vector2
 
 from ..entities import Survivor, Zombie
-from ..core.models import Barricade, Building, DynamicEvent, InterestPoint, ResourceNode, WorldFeature
+from ..core.models import Barricade, Building, BuildingRequest, ChiefTask, DynamicEvent, InterestPoint, ResourceNode, WorldFeature
 from ..core.scenes import SceneId
 
 if TYPE_CHECKING:
@@ -83,6 +83,7 @@ class SaveGameCodec:
                 "next_recruit_index": game.next_recruit_index,
                 "next_building_uid": game.next_building_uid,
                 "next_build_request_uid": game.next_build_request_uid,
+                "next_chief_task_uid": game.next_chief_task_uid,
                 "player_sleeping": game.player_sleeping,
                 "player_sleep_slot": sleep_slot,
                 "player_sleep_elapsed": game.player_sleep_elapsed,
@@ -173,6 +174,20 @@ class SaveGameCodec:
                         "assigned_to": request.assigned_to,
                     }
                     for request in game.build_requests
+                ],
+                "chief_tasks": [
+                    {
+                        "uid": task.uid,
+                        "kind": task.kind,
+                        "title": task.title,
+                        "description": task.description,
+                        "target": dict(task.target),
+                        "reward": dict(task.reward),
+                        "progress": task.progress,
+                        "completed": task.completed,
+                        "claimed": task.claimed,
+                    }
+                    for task in game.chief_tasks
                 ],
                 "barricades": [
                     {
@@ -271,6 +286,8 @@ class SaveGameCodec:
                         "variant": zombie.variant,
                         "weapon_name": zombie.weapon_name,
                         "expedition_skirmish": bool(getattr(zombie, "expedition_skirmish", False)),
+                        "spawn_source": str(getattr(zombie, "spawn_source", "")),
+                        "summon_chain_budget": getattr(zombie, "summon_chain_budget", None),
                     }
                     for zombie in game.zombies
                 ],
@@ -333,6 +350,7 @@ class SaveGameCodec:
         game.next_recruit_index = int(data.get("next_recruit_index", game.next_recruit_index))
         game.next_building_uid = int(data.get("next_building_uid", game.next_building_uid))
         game.next_build_request_uid = int(data.get("next_build_request_uid", game.next_build_request_uid))
+        game.next_chief_task_uid = int(data.get("next_chief_task_uid", game.next_chief_task_uid))
         game.player_sleeping = bool(data.get("player_sleeping", False))
         slot_data = data.get("player_sleep_slot")
         game.player_sleep_slot = dict(slot_data) if isinstance(slot_data, dict) else None
@@ -439,7 +457,34 @@ class SaveGameCodec:
             )
             for building in list(data.get("buildings", []))
         ]
-        game.build_requests = []
+        game.build_requests = [
+            BuildingRequest(
+                uid=int(request.get("uid", 0)),
+                requester_name=str(request.get("requester_name", "")),
+                kind=str(request.get("kind", "")),
+                label=str(request.get("label", "")),
+                pos=self.list_to_vec(request.get("pos"), Vector2()),
+                size=float(request.get("size", 30.0)),
+                approved=bool(request.get("approved", False)),
+                progress=float(request.get("progress", 0.0)),
+                assigned_to=request.get("assigned_to"),
+            )
+            for request in list(data.get("build_requests", []))
+        ]
+        game.chief_tasks = [
+            ChiefTask(
+                uid=int(task.get("uid", 0)),
+                kind=str(task.get("kind", "")),
+                title=str(task.get("title", "")),
+                description=str(task.get("description", "")),
+                target=dict(task.get("target", {})),
+                reward=dict(task.get("reward", {})),
+                progress=float(task.get("progress", 0.0)),
+                completed=bool(task.get("completed", False)),
+                claimed=bool(task.get("claimed", False)),
+            )
+            for task in list(data.get("chief_tasks", []))
+        ]
         game.barricades = [
             Barricade(
                 angle=float(barricade.get("angle", 0.0)),
@@ -550,6 +595,9 @@ class SaveGameCodec:
             zombie.variant = str(saved.get("variant", zombie.variant))
             zombie.weapon_name = str(saved.get("weapon_name", zombie.weapon_name))
             zombie.expedition_skirmish = bool(saved.get("expedition_skirmish", False))
+            zombie.spawn_source = str(saved.get("spawn_source", ""))
+            raw_chain_budget = saved.get("summon_chain_budget", None)
+            zombie.summon_chain_budget = int(raw_chain_budget) if raw_chain_budget is not None else None
             game.zombies.append(zombie)
 
         game.active_dynamic_events = [

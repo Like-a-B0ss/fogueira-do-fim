@@ -63,7 +63,7 @@ def tension_label(game: "Game") -> str:
     if tension >= 0.8:
         return "Horda em cima"
     if tension >= 0.56:
-        return "Sob pressao"
+        return "Sob pressão"
     if tension >= 0.32:
         return "Inquieta"
     return "Estavel"
@@ -78,13 +78,17 @@ def begin_night(game: "Game") -> None:
         horde_chance = 0.0
     else:
         horde_chance = min(0.04 + (game.day - 3) * 0.022, 0.32)
+    horde_chance = max(0.0, horde_chance - game.tower_defense_bonus() * 0.16)
     game.horde_active = game.random.random() < horde_chance
     if game.day <= 2:
-        game.spawn_budget = 1 + game.day + (1 if game.horde_active else 0)
-        game.spawn_timer = 2.8
+        game.spawn_budget = game.day + (1 if game.horde_active else 0)
+        game.spawn_timer = 5.4 if game.day == 1 else 4.6
     else:
         game.spawn_budget = 2 + game.day + (2 if game.horde_active else 0)
-        game.spawn_timer = 2.35
+        game.spawn_timer = 3.8 if game.day == 3 else 3.0
+    tower_reduction = int(game.tower_defense_bonus() * 5.0)
+    game.spawn_budget = max(1, game.spawn_budget - tower_reduction)
+    game.spawn_budget = min(game.spawn_budget, max(1, game.active_zombie_cap(pressure=True) - game.living_zombie_count()))
     game.bonfire_ember_bed = clamp(game.bonfire_ember_bed + 8, 0, 100)
     game.emit_embers(game.bonfire_pos, 20)
     game.spawn_floating_text("a floresta acordou", game.bonfire_pos, PALETTE["danger_soft"])
@@ -104,6 +108,8 @@ def begin_night(game: "Game") -> None:
 
 def begin_day(game: "Game") -> None:
     game.day += 1
+    if game.day == 2 and hasattr(game, "notify_chief_task_progress"):
+        game.notify_chief_task_progress("survive_first_night", id="opening_night")
     game.horde_active = False
     used_meals, used_food, ration_deficit = game.apply_daily_rations()
     game.add_resource_bundle(
@@ -118,7 +124,7 @@ def begin_day(game: "Game") -> None:
     for survivor in game.survivors:
         if survivor.is_alive():
             survivor.energy = clamp(survivor.energy + 25, 0, 100)
-            survivor.morale = clamp(survivor.morale + 8, 0, 100)
+            survivor.morale = clamp(survivor.morale + 8 + game.kitchen_morale_bonus(), 0, 100)
             survivor.sleep_debt = clamp(getattr(survivor, "sleep_debt", 0.0) - 18, 0, 100)
     game.try_recruit_survivor()
     game.normalize_stockpile()
@@ -126,7 +132,7 @@ def begin_day(game: "Game") -> None:
     phase_label = game.economy_phase_label()
     if ration_deficit > 0:
         game.set_event_message(
-            f"O amanhecer cobrou caro. Faltaram racoes na fase de {phase_label} e a base sentiu o tranco.",
+            f"O amanhecer cobrou caro. Faltaram rações na fase de {phase_label} e a base sentiu o tranco.",
             duration=6.4,
         )
     elif used_meals > 0 or used_food > 0:

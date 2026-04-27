@@ -22,9 +22,11 @@ class AudioSystem:
         self.zombie_timer = 5.4
         self.music_timer = 1.8
         self.step_timer = 0.0
+        self.scene_music_tag = ""
+        self.frontend_phrase_index = 0
         self.master_volume = 0.86
         self.ambience_volume = 0.92
-        self.music_volume = 0.84
+        self.music_volume = 1.0
         self.listener_pos = Vector2()
 
         try:
@@ -62,7 +64,10 @@ class AudioSystem:
             "salvage": "impact_wood",
             "bonfire": "interact",
         }
-        self._play(cue_map.get(cue, "interact"), volume_scale=0.58, source_pos=source_pos, max_distance=210.0)
+        max_distance = 165.0 if source_pos is not None else 210.0
+        if cue in {"repair", "salvage"}:
+            max_distance = 130.0
+        self._play(cue_map.get(cue, "interact"), volume_scale=0.58, source_pos=source_pos, max_distance=max_distance)
 
     def play_alert(self, *, source_pos: Vector2 | None = None) -> None:
         self._play("alert", volume_scale=0.72, source_pos=source_pos, max_distance=340.0)
@@ -77,6 +82,20 @@ class AudioSystem:
         }
         self._play(cue_map.get(cue, "transition_start"), volume_scale=0.68)
 
+    def debug_cue_names(self) -> list[str]:
+        return sorted(self.cues)
+
+    def play_debug_cue(self, cue: str) -> bool:
+        if cue not in self.cues:
+            return False
+        category = "sfx"
+        if cue.startswith("music_"):
+            category = "music"
+        elif cue.startswith("ambient_") or cue.startswith("zombie_"):
+            category = "ambience"
+        self._play(cue, volume_scale=0.86, category=category)
+        return True
+
     def play_impact(self, cue: str = "flesh", *, source_pos: Vector2 | None = None) -> None:
         cue_map = {
             "flesh": "impact_flesh",
@@ -89,7 +108,10 @@ class AudioSystem:
             "body": 0.56,
         }
         target = cue_map.get(cue, "impact_flesh")
-        self._play(target, volume_scale=volume_map.get(cue, 0.54), source_pos=source_pos, max_distance=250.0)
+        max_distance = 155.0 if source_pos is not None else 250.0
+        if cue == "wood":
+            max_distance = 125.0
+        self._play(target, volume_scale=volume_map.get(cue, 0.54), source_pos=source_pos, max_distance=max_distance)
 
     def update(self, game, dt: float) -> None:
         audio_runtime.update(self, game, dt)
@@ -132,7 +154,7 @@ class AudioSystem:
         if distance >= max_distance:
             return 0.0
         t = (distance - min_distance) / max(1.0, max_distance - min_distance)
-        return max(0.0, 1.0 - t * t)
+        return max(0.0, (1.0 - t) ** 3.4)
 
     def _play(
         self,
@@ -151,8 +173,8 @@ class AudioSystem:
         sound = self.rng.choice(variants)
         category_scale = {
             "sfx": 1.0,
-            "ambience": self.ambience_volume,
-            "music": self.music_volume,
+            "ambience": self.ambience_volume * 1.35,
+            "music": self.music_volume * 1.55,
         }.get(category, 1.0)
         distance_scale = self._distance_gain(source_pos, max_distance=max_distance)
         if distance_scale <= 0.0:
@@ -300,6 +322,9 @@ class AudioSystem:
 
     def _make_music_horde(self, seed: int) -> pygame.mixer.Sound:
         return audio_synthesis.make_music_horde(self, seed)
+
+    def _make_music_frontend(self, seed: int, profile: str = "veil") -> pygame.mixer.Sound:
+        return audio_synthesis.make_music_frontend(self, seed, profile)
 
 
 

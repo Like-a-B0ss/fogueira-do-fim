@@ -31,6 +31,8 @@ class InputState:
     save_pressed: bool = False
     load_pressed: bool = False
     hud_toggle_pressed: bool = False
+    runtime_panel_pressed: bool = False
+    audio_debug_pressed: bool = False
 
 
 class InputSystem:
@@ -79,6 +81,10 @@ class InputSystem:
                     state.build_menu_pressed = True
                 elif event.key == pygame.K_TAB:
                     state.hud_toggle_pressed = True
+                elif event.key == pygame.K_m:
+                    state.runtime_panel_pressed = True
+                elif event.key == pygame.K_F10:
+                    state.audio_debug_pressed = True
                 elif event.key == pygame.K_F5:
                     state.save_pressed = True
                 elif event.key == pygame.K_F9:
@@ -97,6 +103,8 @@ class InputSystem:
                     state.focus_slot = 6
                 elif event.key == pygame.K_7:
                     state.focus_slot = 7
+                elif event.key == pygame.K_8:
+                    state.focus_slot = 8
                 if event.unicode and event.unicode.isprintable() and event.key not in {
                     pygame.K_RETURN,
                     pygame.K_KP_ENTER,

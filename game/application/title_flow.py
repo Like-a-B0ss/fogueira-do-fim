@@ -91,43 +91,78 @@ def handle_exit_prompt_input(game: "Game") -> bool:
 
 
 def refresh_title_actions(game: "Game") -> None:
-    actions = ["Novo Jogo", "Configuracoes", "Sair"]
+    actions = ["Novo Jogo", "Configurações", "Sair"]
     if game.save_exists():
         actions.insert(0, "Continuar")
     game.title_actions = tuple(actions)
     game.title_action_index = max(0, min(game.title_action_index, len(game.title_actions) - 1))
 
 
-def create_tutorial_pages() -> tuple[dict[str, object], ...]:
+def _legacy_tutorial_pages() -> tuple[dict[str, object], ...]:
     return (
         {
             "eyebrow": "Lideranca da Clareira",
-            "title": "Voce e o chefe do acampamento",
-            "body": "Sua presenca segura moral, rotina e defesa. O grupo trabalha sozinho, mas depende de foco, fogo e direcao para nao quebrar.",
+            "title": "Você é o chefe do acampamento",
+            "body": "Sua presença segura moral, rotina e defesa. O grupo trabalha sozinho, mas depende de foco, fogo e direção para não quebrar.",
             "bullets": (
                 "WASD move o chefe pela base e pela mata.",
-                "E interage com barracas, radio, oficina, fogueira, eventos e sobreviventes.",
+                "E interage com barracas, rádio, oficina, fogueira, eventos e sobreviventes.",
                 "1-4 muda a prioridade social do dia.",
             ),
         },
         {
             "eyebrow": "Sobrevivencia",
             "title": "Tudo gira em torno de estoque e tempo",
-            "body": "O acampamento precisa de toras, tabuas, comida, remedios e sucata. A noite aperta mais, e a fogueira segura o centro da sociedade.",
+            "body": "O acampamento precisa de toras, tábuas, comida, remédios e sucata. A noite aperta mais, e a fogueira segura o centro da sociedade.",
             "bullets": (
-                "Clique esquerdo ou Espaco ataca e derruba arvores.",
-                "B abre a construcao; 1-7 escolhe o edificio.",
+                "Clique esquerdo ou Espaço ataca e derruba árvores.",
+                "B abre a construção; 1-8 escolhe o edifício.",
                 "E na oficina amplia a base quando houver toras e sucata.",
             ),
         },
         {
             "eyebrow": "Pressao do Mundo",
-            "title": "Explore, decida e nao deixe o campo ruir",
-            "body": "Zumbis rondam a floresta, faccoes cobram respostas, expedicoes pedem resgate e a sociedade pode enlouquecer se voce sumir demais.",
+            "title": "Explore, decida e não deixe o campo ruir",
+            "body": "Zumbis rondam a floresta, facções cobram respostas, expedições pedem resgate e a sociedade pode enlouquecer se você sumir demais.",
             "bullets": (
-                "Q resolve decisoes duras em eventos morais e faccoes.",
+                "Q resolve decisões duras em eventos morais e facções.",
                 "F5 salva e F9 carrega sem sair da partida.",
                 "Enter avanca as dicas; Esc pula tudo e entra no jogo.",
+            ),
+        },
+    )
+
+
+def create_tutorial_pages() -> tuple[dict[str, object], ...]:
+    return (
+        {
+            "eyebrow": "Mundo Comum",
+            "title": "Você aprendeu a sobreviver sozinho",
+            "body": "Depois da explosão, da doença e da casa perdida, o chefe ficou frio. Coletar, evitar risco e não se apegar viraram regra.",
+            "bullets": (
+                "WASD move o chefe pela base e pela mata.",
+                "Clique esquerdo ou Espaço ataca e derruba árvores.",
+                "A fogueira é abrigo, calor e o centro moral do grupo.",
+            ),
+        },
+        {
+            "eyebrow": "Chamado",
+            "title": "Uma voz pediu ajuda no rádio",
+            "body": "O grupo está faminto, quebrado e desorganizado. Entre eles há uma menina que lembra o chefe do que ele tentou enterrar.",
+            "bullets": (
+                "E interage com moradores, rádio, oficina, fogueira e eventos.",
+                "Conversar aumenta confiança e revela medo, passado e relações.",
+                "As tarefas do chefe mostram o que precisa ser feito agora.",
+            ),
+        },
+        {
+            "eyebrow": "Primeira Noite",
+            "title": "Ficar é atravessar o limiar",
+            "body": "A noite vai testar a fogueira, a vigia e a confiança do grupo. Sobreviver sozinho era simples; liderar gente assustada cobra mais.",
+            "bullets": (
+                "Alimente a fogueira, fale com um morador e mande alguém vigiar.",
+                "B abre construção; 1-8 escolhe edifícios quando houver recursos.",
+                "Enter entra no jogo; Esc pula as dicas.",
             ),
         },
     )
@@ -158,8 +193,10 @@ def handle_title_input(game: "Game") -> None:
 
     if hovered_action is not None and hovered_action != game.title_action_index:
         game.title_action_index = hovered_action
+        game.audio.play_ui("focus")
     if hovered_setting is not None and hovered_setting != game.title_setting_index:
         game.title_setting_index = hovered_setting
+        game.audio.play_ui("focus")
 
     if game.title_settings_open:
         if game.input_state.menu_up:
@@ -206,6 +243,8 @@ def handle_title_input(game: "Game") -> None:
 
     choice_index = hovered_action if hovered_action is not None and clicked else game.title_action_index
     choice = game.title_actions[choice_index]
+    if clicked or game.input_state.confirm_pressed:
+        game.audio.play_ui()
     if choice == "Continuar":
         success, message = game.load_game()
         if success:
@@ -215,7 +254,7 @@ def handle_title_input(game: "Game") -> None:
             game.audio.play_alert()
     elif choice == "Novo Jogo":
         game.begin_new_game_flow()
-    elif choice == "Configuracoes":
+    elif choice == "Configurações":
         game.title_settings_open = True
         game.audio.play_ui("focus")
     elif choice == "Sair":
@@ -234,6 +273,7 @@ def handle_tips_input(game: "Game") -> None:
         return
 
     if clicked and layout["skip_button"].collidepoint(mouse_pos):
+        game.audio.play_ui()
         game.skip_tips_to_gameplay()
         return
 
@@ -243,6 +283,7 @@ def handle_tips_input(game: "Game") -> None:
         or (clicked and layout["next_button"].collidepoint(mouse_pos))
     ):
         if on_last:
+            game.audio.play_ui()
             game.start_gameplay()
         else:
             game.tips_index = min(page_count - 1, game.tips_index + 1)

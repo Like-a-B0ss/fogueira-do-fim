@@ -101,7 +101,7 @@ def perform_attack(player, game) -> None:
         if amount > 0:
             stored = game.add_resource_bundle({"logs": amount})
             game.spawn_floating_text(game.bundle_summary(stored or {"logs": amount}), tree_pos, PALETTE["accent_soft"])
-            game.set_event_message("As arvores agora viram toras. Sem serraria, a oficina corta tabuas devagar para segurar o comeco.", duration=4.8)
+            game.set_event_message("As árvores agora viram toras. Sem serraria, a oficina corta tábuas devagar para segurar o começo.", duration=4.8)
             game.impact_burst(tree_pos, PALETTE["accent_soft"], radius=13, shake=1.0, ember_count=5, smoky=True)
             game.audio.play_impact("wood", source_pos=tree_pos)
         else:
@@ -179,7 +179,7 @@ def perform_interaction(player, game, *, hardline: bool = False) -> None:
     downed_member = game.nearest_downed_expedition_member(player.pos)
     if downed_member:
         game.revive_expedition_member(downed_member)
-        game.set_event_message(f"Voce puxou {downed_member.name} de volta para a coluna.", duration=4.8)
+        game.set_event_message(f"Você puxou {downed_member.name} de volta para a coluna.", duration=4.8)
         game.audio.play_interact("repair", source_pos=downed_member.pos)
         return
 
@@ -216,6 +216,7 @@ def perform_interaction(player, game, *, hardline: bool = False) -> None:
             game.spawn_floating_text("barricada reforcada", barricade.pos, PALETTE["heal"])
             game.impact_burst(barricade.pos, PALETTE["heal"], radius=11, shake=0.55, ember_count=2, smoky=True)
             game.audio.play_interact("repair", source_pos=barricade.pos)
+            game.notify_chief_task_progress("repair_barricade")
             acted = True
             break
 
@@ -242,7 +243,7 @@ def perform_interaction(player, game, *, hardline: bool = False) -> None:
             stored = game.cut_planks_at_workshop()
             if stored:
                 game.spawn_floating_text(game.bundle_summary(stored), game.workshop_pos, PALETTE["accent_soft"])
-                game.set_event_message("A oficina cortou tabuas devagar. A serraria ainda segue sendo a versao eficiente.", duration=4.8)
+                game.set_event_message("A oficina cortou tábuas devagar. A serraria ainda segue sendo a versão eficiente.", duration=4.8)
                 game.impact_burst(game.workshop_pos, PALETTE["accent_soft"], radius=11, shake=0.45, ember_count=3, smoky=True)
                 game.audio.play_interact("repair", source_pos=game.workshop_pos)
                 return
@@ -319,11 +320,11 @@ def perform_interaction(player, game, *, hardline: bool = False) -> None:
                 return
             status = game.expedition_status_text(short=False) or "A equipe esta fora da base."
             game.set_event_message(status, duration=5.0)
-            game.spawn_floating_text("expedicao", game.radio_pos, PALETTE["accent_soft"])
+            game.spawn_floating_text("expedição", game.radio_pos, PALETTE["accent_soft"])
             game.audio.play_ui("focus")
             return
         launched, message = game.launch_best_expedition()
-        game.spawn_floating_text("expedicao" if launched else "sem equipe", game.radio_pos, PALETTE["accent_soft"] if launched else PALETTE["danger_soft"])
+        game.spawn_floating_text("expedição" if launched else "sem equipe", game.radio_pos, PALETTE["accent_soft"] if launched else PALETTE["danger_soft"])
         if launched:
             game.audio.play_ui("order")
         else:
@@ -380,7 +381,7 @@ def perform_mouse_interaction(
 
     if kind == "downed_member" and obj:
         game.revive_expedition_member(obj)
-        game.set_event_message(f"Voce puxou {obj.name} de volta para a coluna.", duration=4.8)
+        game.set_event_message(f"Você puxou {obj.name} de volta para a coluna.", duration=4.8)
         game.audio.play_interact("repair", source_pos=obj.pos)
         return
 
@@ -406,6 +407,7 @@ def perform_mouse_interaction(
             game.spawn_floating_text("barricada reforcada", obj.pos, PALETTE["heal"])
             game.impact_burst(obj.pos, PALETTE["heal"], radius=11, shake=0.55, ember_count=2, smoky=True)
             game.audio.play_interact("repair", source_pos=obj.pos)
+            game.notify_chief_task_progress("repair_barricade")
             return
         if game.upgrade_barricade(obj):
             game.audio.play_interact("repair", source_pos=obj.pos)
@@ -414,7 +416,7 @@ def perform_mouse_interaction(
             game.spawn_floating_text("spikes no limite", obj.pos, PALETTE["muted"])
         else:
             wood_cost, scrap_cost = game.barricade_upgrade_cost(obj)
-            game.spawn_floating_text(f"pede {wood_cost} tabuas e {scrap_cost} sucata", obj.pos, PALETTE["muted"])
+            game.spawn_floating_text(f"pede {wood_cost} tábuas e {scrap_cost} sucata", obj.pos, PALETTE["muted"])
         return
 
     if kind == "workshop":
@@ -426,7 +428,7 @@ def perform_mouse_interaction(
             stored = game.cut_planks_at_workshop()
             if stored:
                 game.spawn_floating_text(game.bundle_summary(stored), game.workshop_pos, PALETTE["accent_soft"])
-                game.set_event_message("A oficina cortou tabuas devagar. A serraria ainda segue sendo a versao eficiente.", duration=4.8)
+                game.set_event_message("A oficina cortou tábuas devagar. A serraria ainda segue sendo a versão eficiente.", duration=4.8)
                 game.impact_burst(game.workshop_pos, PALETTE["accent_soft"], radius=11, shake=0.45, ember_count=3, smoky=True)
                 game.audio.play_interact("repair", source_pos=game.workshop_pos)
                 return
@@ -461,7 +463,7 @@ def perform_mouse_interaction(
                 game.emit_embers(game.bonfire_pos, 12)
                 game.audio.play_interact("bonfire", source_pos=game.bonfire_pos)
         else:
-            game.spawn_floating_text("sem combustivel", game.bonfire_pos, PALETTE["muted"])
+            game.spawn_floating_text("sem combustível", game.bonfire_pos, PALETTE["muted"])
         return
 
     if kind.startswith("building:") and obj:
@@ -488,11 +490,11 @@ def perform_mouse_interaction(
                 return
             status = game.expedition_status_text(short=False) or "A equipe esta fora da base."
             game.set_event_message(status, duration=5.0)
-            game.spawn_floating_text("expedicao", game.radio_pos, PALETTE["accent_soft"])
+            game.spawn_floating_text("expedição", game.radio_pos, PALETTE["accent_soft"])
             game.audio.play_ui("focus")
             return
         launched, message = game.launch_best_expedition()
-        game.spawn_floating_text("expedicao" if launched else "sem equipe", game.radio_pos, PALETTE["accent_soft"] if launched else PALETTE["danger_soft"])
+        game.spawn_floating_text("expedição" if launched else "sem equipe", game.radio_pos, PALETTE["accent_soft"] if launched else PALETTE["danger_soft"])
         if launched:
             game.audio.play_ui("order")
         else:

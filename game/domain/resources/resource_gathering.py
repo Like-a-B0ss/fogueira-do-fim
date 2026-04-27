@@ -50,7 +50,7 @@ def bundle_summary(_game: "Game", bundle: dict[str, int]) -> str:
         "herbs": "erva",
         "scrap": "sucata",
         "meals": "refeicao",
-        "medicine": "remedio",
+        "medicine": "remédio",
     }
     parts = [f"+{amount} {labels.get(resource, resource)}" for resource, amount in bundle.items() if amount > 0]
     return "  ".join(parts) if parts else "estoque cheio"

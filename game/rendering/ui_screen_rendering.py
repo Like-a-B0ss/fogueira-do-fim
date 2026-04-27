@@ -2,50 +2,49 @@ from __future__ import annotations
 
 import pygame
 
-from ..core.config import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH
+from ..core.config import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH, load_font
 
 
 def draw_splash_screen(game) -> None:
     overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    overlay.fill((4, 8, 10, 176))
+    overlay.fill((0, 0, 0, 252))
     game.screen.blit(overlay, (0, 0))
 
-    halo = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 36)
-    pygame.draw.circle(halo, (198, 134, 72, 34), center, 178)
-    pygame.draw.circle(halo, (214, 162, 92, 18), center, 248)
-    game.screen.blit(halo, (0, 0))
-
-    panel = pygame.Rect(0, 0, min(760, SCREEN_WIDTH - 120), 300)
-    panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-    game.draw_panel(panel, alpha_scale=0.9)
-
-    eyebrow = game.small_font.render("UM CAMPO AINDA RESPIRA", True, PALETTE["morale"])
-    title = game.title_font.render("Fogueira do Fim", True, PALETTE["text"])
-    subtitle = game.body_font.render(
-        "Carregando sociedade, trilhas, clima e a vigia da noite.",
-        True,
-        PALETTE["accent_soft"],
-    )
-    game.screen.blit(eyebrow, eyebrow.get_rect(center=(panel.centerx, panel.y + 42)))
-    game.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 104)))
-    game.screen.blit(subtitle, subtitle.get_rect(center=(panel.centerx, panel.y + 152)))
-
-    bar = pygame.Rect(panel.x + 92, panel.y + 196, panel.width - 184, 18)
     progress = min(1.0, game.splash_elapsed / max(0.01, game.splash_min_duration))
-    pygame.draw.rect(game.screen, (20, 28, 30), bar, border_radius=9)
-    pygame.draw.rect(game.screen, PALETTE["ui_line"], bar, 1, border_radius=9)
-    fill = max(24, int((bar.width - 4) * progress))
-    pygame.draw.rect(game.screen, PALETTE["accent_soft"], (bar.x + 2, bar.y + 2, min(fill, bar.width - 4), bar.height - 4), border_radius=8)
+    fade_out = min(1.0, max(0.0, (progress - 0.92) / 0.08))
+    alpha_scale = max(0.0, 1.0 - fade_out)
 
-    loading = game.ui_small_font.render("Preparando a clareira...", True, PALETTE["muted"])
-    game.screen.blit(loading, loading.get_rect(center=(panel.centerx, panel.y + 234)))
+    text_alpha = int(255 * alpha_scale)
+    center_x = SCREEN_WIDTH // 2
+    center_y = SCREEN_HEIGHT // 2
 
-    if game.splash_elapsed >= 0.45:
+    credit_font = load_font(38, title=True)
+    connector_font = load_font(32, title=True)
+    presents_font = load_font(30, title=True)
+    support_font = load_font(46, title=True)
+    credit = credit_font.render("LEONARDO", True, PALETTE["text"])
+    connector = connector_font.render("e", True, PALETTE["muted"])
+    co_credit = credit_font.render("MARIANO", True, PALETTE["text"])
+    presents = presents_font.render("apresentam", True, PALETTE["muted"])
+    support = support_font.render("Fogueira do Fim", True, PALETTE["text"])
+
+    for text_surface in (credit, connector, co_credit, presents, support):
+        text_surface.set_alpha(text_alpha)
+
+    total_width = credit.get_width() + 24 + connector.get_width() + 24 + co_credit.get_width()
+    row_left = center_x - total_width // 2
+    row_y = center_y - 58
+    game.screen.blit(credit, (row_left, row_y))
+    game.screen.blit(connector, (row_left + credit.get_width() + 24, row_y + 6))
+    game.screen.blit(co_credit, (row_left + credit.get_width() + 24 + connector.get_width() + 24, row_y))
+    game.screen.blit(presents, presents.get_rect(center=(center_x, center_y + 24)))
+    game.screen.blit(support, support.get_rect(center=(center_x, center_y + 82)))
+
+    if game.splash_elapsed >= 2.4:
         pulse = 0.55 + 0.45 * ((pygame.math.Vector2(1, 0).rotate(game.splash_hint_pulse * 160).x + 1) * 0.5)
-        hint = game.ui_small_font.render("Pressione Enter, clique ou E para continuar", True, PALETTE["text"])
+        hint = game.ui_small_font.render("Pressione Enter, clique ou E para pular", True, PALETTE["text"])
         hint.set_alpha(int(255 * pulse))
-        game.screen.blit(hint, hint.get_rect(center=(panel.centerx, panel.bottom - 34)))
+        game.screen.blit(hint, hint.get_rect(center=(center_x, SCREEN_HEIGHT - 54)))
 
 
 def draw_title_screen(game) -> None:
@@ -75,7 +74,7 @@ def draw_title_screen(game) -> None:
     )
     game.screen.blit(title, (panel.x + 38, panel.y + 34))
     game.screen.blit(subtitle, (panel.x + 42, panel.y + 96))
-    live_tag = game.ui_small_font.render("Simulacao viva ao fundo", True, PALETTE["morale"])
+    live_tag = game.ui_small_font.render("Simulação viva ao fundo", True, PALETTE["morale"])
     game.screen.blit(live_tag, (panel.right - live_tag.get_width() - 40, panel.y + 48))
 
     left_card = layout["left_card"]
@@ -84,9 +83,9 @@ def draw_title_screen(game) -> None:
     game.screen.blit(section, (left_card.x + 20, left_card.y + 18))
     pitch_lines = [
         "Ao fundo, o campo continua respirando: sobreviventes rondam, fogo pulsa e a floresta nunca dorme.",
-        "Voce lidera gente exausta no meio da mata, administrando sono, fome, medo e lealdade.",
-        "A base cresce por barracas, oficinas, barricadas e expedicoes para muito alem da primeira linha de arvores.",
-        "Cada noite cobra leitura social e defesa; cada dia cobra recurso, risco e presenca.",
+        "Você lidera gente exausta no meio da mata, administrando sono, fome, medo e lealdade.",
+        "A base cresce por barracas, oficinas, barricadas e expedições para muito além da primeira linha de árvores.",
+        "Cada noite cobra leitura social e defesa; cada dia cobra recurso, risco e presença.",
     ]
     paragraph_y = left_card.y + 64
     text_width = left_card.width - 40
@@ -105,8 +104,8 @@ def draw_title_screen(game) -> None:
     pygame.draw.rect(game.screen, PALETTE["ui_panel"], feature_box, border_radius=14)
     pygame.draw.rect(game.screen, PALETTE["ui_line"], feature_box, 1, border_radius=14)
     feature_lines = [
-        "Comece um novo turno, revise o ultimo save ou ajuste a apresentacao antes de entrar.",
-        "Ao iniciar um jogo novo, uma sequencia curta de dicas aparece e pode ser pulada a qualquer momento.",
+        "Comece um novo turno, revise o último save ou ajuste a apresentação antes de entrar.",
+        "Ao iniciar um jogo novo, uma sequência curta de dicas aparece e pode ser pulada a qualquer momento.",
     ]
     feature_y = feature_box.y + 16
     for index, line in enumerate(feature_lines):
@@ -127,7 +126,7 @@ def draw_title_screen(game) -> None:
     game.screen.blit(menu_title, (right_card.x + 20, right_card.y + 18))
     game.draw_wrapped_text(
         game.ui_small_font,
-        "Tela cheia, mouse ativo e simulacao viva atras do menu principal.",
+        "Tela cheia, mouse ativo e simulação viva atrás do menu principal.",
         PALETTE["muted"],
         right_card.x + 20,
         right_card.y + 48,
@@ -143,13 +142,13 @@ def draw_title_screen(game) -> None:
             pygame.draw.rect(game.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=14)
             label = game.body_font.render(action, True, PALETTE["text"])
             if action == "Continuar":
-                prompt_text = "Retomar o ultimo acampamento salvo."
+                prompt_text = "Retomar o último acampamento salvo."
             elif action == "Novo Jogo":
                 prompt_text = "Entrar na clareira."
-            elif action == "Configuracoes":
+            elif action == "Configurações":
                 prompt_text = "Abrir a aba de ajustes."
             else:
-                prompt_text = "Fechar a sessao."
+                prompt_text = "Fechar a sessão."
             game.screen.blit(label, (row.x + 16, row.y + 9))
             game.draw_wrapped_text(
                 game.ui_small_font,
@@ -163,7 +162,7 @@ def draw_title_screen(game) -> None:
     else:
         settings_panel = layout["settings_panel"]
         game.draw_panel(settings_panel)
-        settings_title = game.heading_font.render("Configuracoes", True, PALETTE["text"])
+        settings_title = game.heading_font.render("Configurações", True, PALETTE["text"])
         settings_subtitle = game.ui_small_font.render(
             "Clique em - e + ou use A e D para ajustar a linha marcada.",
             True,
@@ -226,7 +225,169 @@ def draw_title_screen(game) -> None:
                 center=(panel.centerx, footer_y + index * (footer_line_height + 2) + footer_line_height // 2)
             ),
         )
+def draw_loading_screen(game, alpha_override: int | None = None) -> None:
+    alpha_scale = max(0.0, min(1.0, (alpha_override if alpha_override is not None else 255) / 255))
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((4, 7, 9, int(208 * alpha_scale)))
+    game.screen.blit(overlay, (0, 0))
 
+    haze = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    phase = float(getattr(game, "loading_phase", 0.0))
+    sway = int((pygame.math.Vector2(1, 0).rotate(phase * 120).x + 1.0) * 36)
+    pygame.draw.ellipse(
+        haze,
+        (184, 122, 72, int(28 * alpha_scale)),
+        pygame.Rect(120 - sway, 84, SCREEN_WIDTH - 240, 180),
+    )
+    pygame.draw.ellipse(
+        haze,
+        (88, 110, 102, int(22 * alpha_scale)),
+        pygame.Rect(90 + sway // 2, SCREEN_HEIGHT - 280, SCREEN_WIDTH - 180, 170),
+    )
+    game.screen.blit(haze, (0, 0))
+
+    panel = pygame.Rect(0, 0, min(820, SCREEN_WIDTH - 140), 340)
+    panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+    game.draw_panel(panel, alpha_scale=0.92 * alpha_scale)
+
+    eyebrow = game.small_font.render("TRAVESSIA ENTRE CENAS", True, PALETTE["morale"])
+    title = game.title_font.render(str(getattr(game, "loading_title", "Carregando")), True, PALETTE["text"])
+    subtitle = game.body_font.render(str(getattr(game, "loading_subtitle", "")), True, PALETTE["accent_soft"])
+    eyebrow.set_alpha(int(255 * alpha_scale))
+    title.set_alpha(int(255 * alpha_scale))
+    subtitle.set_alpha(int(255 * alpha_scale))
+    game.screen.blit(eyebrow, (panel.x + 42, panel.y + 30))
+    game.screen.blit(title, (panel.x + 38, panel.y + 64))
+    game.screen.blit(subtitle, (panel.x + 44, panel.y + 132))
+
+    progress = max(0.0, min(1.0, float(getattr(game, "loading_progress", 0.0))))
+    bar = pygame.Rect(panel.x + 42, panel.y + 206, panel.width - 84, 22)
+    pygame.draw.rect(game.screen, (18, 24, 26), bar, border_radius=11)
+    pygame.draw.rect(game.screen, PALETTE["ui_line"], bar, 1, border_radius=11)
+    fill_width = int((bar.width - 6) * progress)
+    if fill_width > 0:
+        pygame.draw.rect(
+            game.screen,
+            PALETTE["accent_soft"],
+            (bar.x + 3, bar.y + 3, fill_width, bar.height - 6),
+            border_radius=9,
+        )
+
+    progress_text = game.heading_font.render(f"{int(progress * 100):02d}%", True, PALETTE["text"])
+    status_text = game.ui_small_font.render(
+        "Nada de tela preta: a clareira continua respirando.",
+        True,
+        PALETTE["muted"],
+    )
+    progress_text.set_alpha(int(255 * alpha_scale))
+    status_text.set_alpha(int(255 * alpha_scale))
+    game.screen.blit(progress_text, (bar.right - progress_text.get_width(), bar.y - 44))
+    game.screen.blit(status_text, (panel.x + 44, panel.y + 248))
+
+    tips = (
+        "Novo jogo recompõe o mundo base.",
+        "Continuar reconstrói o save ativo.",
+        "Reiniciar limpa a pressão e volta ao início.",
+    )
+    tip_y = panel.y + 280
+    for line in tips:
+        text = game.ui_small_font.render(line, True, PALETTE["muted"])
+        text.set_alpha(int(255 * alpha_scale))
+        game.screen.blit(text, (panel.x + 44, tip_y))
+        tip_y += 22
+
+
+def draw_runtime_settings_overlay(game) -> None:
+    layout = game.gameplay_runtime_layout()
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((4, 6, 8, 186))
+    game.screen.blit(overlay, (0, 0))
+
+    panel = layout["panel"]
+    game.draw_panel(panel)
+    title = game.heading_font.render("Volume em Partida", True, PALETTE["text"])
+    subtitle = game.ui_small_font.render("Use M para abrir/fechar. Setas ou clique em - e + ajustam.", True, PALETTE["muted"])
+    game.screen.blit(title, (panel.x + 22, panel.y + 20))
+    game.screen.blit(subtitle, (panel.x + 22, panel.y + 50))
+
+    mouse_pos = game.input_state.mouse_screen
+    close_hover = layout["close"].collidepoint(mouse_pos)
+    pygame.draw.rect(game.screen, (70, 84, 88) if close_hover else PALETTE["ui_panel"], layout["close"], border_radius=10)
+    pygame.draw.rect(game.screen, PALETTE["ui_line"], layout["close"], 1, border_radius=10)
+    close_text = game.ui_small_font.render("Fechar", True, PALETTE["text"])
+    game.screen.blit(close_text, close_text.get_rect(center=layout["close"].center))
+
+    for index, ((key, label, _, _, _), item) in enumerate(zip(game.gameplay_setting_entries, layout["setting_rows"])):
+        row = item["row"]
+        active = game.gameplay_setting_index == index or row.collidepoint(mouse_pos)
+        minus_hover = item["minus"].collidepoint(mouse_pos)
+        plus_hover = item["plus"].collidepoint(mouse_pos)
+        pygame.draw.rect(game.screen, (44, 58, 62) if active else PALETTE["ui_panel"], row, border_radius=12)
+        pygame.draw.rect(game.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=12)
+        pygame.draw.rect(game.screen, (70, 84, 88) if minus_hover else (54, 66, 70), item["minus"], border_radius=7)
+        pygame.draw.rect(game.screen, (70, 84, 88) if plus_hover else (54, 66, 70), item["plus"], border_radius=7)
+        pygame.draw.rect(game.screen, PALETTE["ui_line"], item["minus"], 1, border_radius=7)
+        pygame.draw.rect(game.screen, PALETTE["ui_line"], item["plus"], 1, border_radius=7)
+        pygame.draw.rect(game.screen, (32, 40, 42), item["value"], border_radius=7)
+        pygame.draw.rect(game.screen, PALETTE["ui_line"], item["value"], 1, border_radius=7)
+        left = game.ui_small_font.render(label, True, PALETTE["text"])
+        value = game.ui_small_font.render(game.title_setting_value_label(str(key)), True, PALETTE["morale"] if active else PALETTE["text"])
+        minus = game.body_font.render("-", True, PALETTE["text"])
+        plus = game.body_font.render("+", True, PALETTE["text"])
+        game.screen.blit(left, (row.x + 12, row.y + 6))
+        game.screen.blit(value, value.get_rect(center=item["value"].center))
+        game.screen.blit(minus, minus.get_rect(center=item["minus"].center))
+        game.screen.blit(plus, plus.get_rect(center=item["plus"].center))
+
+
+def draw_audio_debug_overlay(game) -> None:
+    cues = game.audio.debug_cue_names() if hasattr(game.audio, "debug_cue_names") else []
+    screen_width, screen_height = game.screen.get_size()
+    overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
+    overlay.fill((3, 5, 7, 204))
+    game.screen.blit(overlay, (0, 0))
+
+    panel = pygame.Rect(0, 0, min(760, screen_width - 80), min(660, screen_height - 80))
+    panel.center = (screen_width // 2, screen_height // 2)
+    game.draw_panel(panel)
+
+    title = game.heading_font.render("Teste de Audio", True, PALETTE["text"])
+    subtitle = game.ui_small_font.render("F10 fecha  |  setas/scroll navegam  |  Enter ou clique toca", True, PALETTE["muted"])
+    game.screen.blit(title, (panel.x + 22, panel.y + 18))
+    game.screen.blit(subtitle, (panel.x + 22, panel.y + 48))
+
+    if not cues:
+        text = game.body_font.render("Banco de sons indisponivel.", True, PALETTE["danger_soft"])
+        game.screen.blit(text, text.get_rect(center=panel.center))
+        return
+
+    row_height = 28
+    visible_rows = max(1, (panel.height - 118) // row_height)
+    selected = max(0, min(len(cues) - 1, int(getattr(game, "audio_debug_index", 0))))
+    scroll = max(0, min(int(getattr(game, "audio_debug_scroll", 0)), max(0, len(cues) - visible_rows)))
+    list_top = panel.y + 74
+    list_rect = pygame.Rect(panel.x + 18, list_top, panel.width - 36, visible_rows * row_height)
+    pygame.draw.rect(game.screen, (16, 22, 24), list_rect, border_radius=12)
+    pygame.draw.rect(game.screen, PALETTE["ui_line"], list_rect, 1, border_radius=12)
+
+    for row in range(visible_rows):
+        index = scroll + row
+        if index >= len(cues):
+            break
+        rect = pygame.Rect(list_rect.x + 6, list_rect.y + 6 + row * row_height, list_rect.width - 12, row_height - 4)
+        cue = cues[index]
+        active = index == selected
+        if active:
+            pygame.draw.rect(game.screen, (50, 66, 70), rect, border_radius=7)
+            pygame.draw.rect(game.screen, PALETTE["accent_soft"], rect, 1, border_radius=7)
+        category = "musica" if cue.startswith("music_") else ("ambiente" if cue.startswith(("ambient_", "zombie_")) else "sfx")
+        label = game.ui_small_font.render(f"{index + 1:02d}. {cue}", True, PALETTE["text"] if active else PALETTE["muted"])
+        tag = game.ui_small_font.render(category, True, PALETTE["morale"] if category == "ambiente" else PALETTE["accent_soft"])
+        game.screen.blit(label, (rect.x + 10, rect.y + 5))
+        game.screen.blit(tag, (rect.right - tag.get_width() - 10, rect.y + 5))
+
+    footer = game.ui_small_font.render(f"{selected + 1}/{len(cues)} selecionado: {cues[selected]}", True, PALETTE["accent_soft"])
+    game.screen.blit(footer, (panel.x + 22, panel.bottom - 32))
 
 
 def draw_tips_screen(game) -> None:
@@ -255,7 +416,7 @@ def draw_tips_screen(game) -> None:
     pygame.draw.rect(game.screen, (24, 32, 34), box, border_radius=22)
     pygame.draw.rect(game.screen, PALETTE["ui_line"], box, 1, border_radius=22)
     hint = game.small_font.render(
-        "Dicas essenciais para entrar na primeira vigia. Enter avanca, Esc pula.",
+        "Dicas essenciais para entrar na primeira vigia. Enter avança, Esc pula.",
         True,
         PALETTE["muted"],
     )
@@ -281,7 +442,7 @@ def draw_tips_screen(game) -> None:
         pygame.draw.circle(game.screen, color, (panel.x + 52 + index * 20, panel.bottom - 44), 5)
 
     for rect, label, hover in (
-        (layout["next_button"], "Entrar no Jogo" if last_page else "Proxima", next_hover),
+        (layout["next_button"], "Entrar no Jogo" if last_page else "Próxima", next_hover),
         (layout["skip_button"], "Pular Dicas", skip_hover),
     ):
         pygame.draw.rect(game.screen, (62, 80, 84) if hover else PALETTE["ui_panel"], rect, border_radius=14)
@@ -298,14 +459,26 @@ def draw_game_over(game) -> None:
     panel.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
     game.draw_panel(panel)
     title = game.title_font.render("O campo caiu", True, PALETTE["danger_soft"])
-    subtitle = game.body_font.render(
-        "A fogueira se apagou, a moral quebrou ou o chefe nao resistiu.",
-        True,
-        PALETTE["text"],
+    reason = str(
+        getattr(
+            game,
+            "game_over_reason",
+            "A fogueira se apagou, a moral quebrou ou o chefe não resistiu.",
+        )
+        or "A fogueira se apagou, a moral quebrou ou o chefe não resistiu."
     )
-    retry = game.body_font.render("Pressione Enter para recomecar a vigia.", True, PALETTE["morale"])
+    retry = game.body_font.render("Pressione Enter para recomeçar a vigia.", True, PALETTE["morale"])
     game.screen.blit(title, title.get_rect(center=(panel.centerx, panel.y + 78)))
-    game.screen.blit(subtitle, subtitle.get_rect(center=(panel.centerx, panel.y + 136)))
+    reason_lines = game.wrap_text_lines(game.body_font, reason, panel.width - 84)
+    reason_line_height = game.body_font.get_linesize()
+    reason_total_height = len(reason_lines) * reason_line_height + max(0, len(reason_lines) - 1) * 2
+    reason_y = panel.y + 126 - reason_total_height // 2
+    for index, line in enumerate(reason_lines):
+        subtitle = game.body_font.render(line, True, PALETTE["text"])
+        game.screen.blit(
+            subtitle,
+            subtitle.get_rect(center=(panel.centerx, reason_y + index * (reason_line_height + 2))),
+        )
     game.screen.blit(retry, retry.get_rect(center=(panel.centerx, panel.y + 188)))
 
 

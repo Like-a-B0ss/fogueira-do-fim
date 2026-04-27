@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import math
 import random
+import time
 
 import pygame
 from pygame import Vector2
@@ -29,7 +30,7 @@ from ..core.config import (
 from ..core.input import InputState, InputSystem
 from ..infrastructure.savegame_codec import SaveGameCodec
 from ..infrastructure.savegame_repository import JsonSaveGameRepository, SaveGameWriteError
-from ..core.models import Building, BuildingRequest, DamagePulse, DynamicEvent, Ember, FloatingText, FogMote
+from ..core.models import Building, BuildingRequest, ChiefTask, DamagePulse, DynamicEvent, Ember, FloatingText, FogMote
 from ..rendering import RenderMixin
 from ..core.scenes import SceneId, SceneManager
 from ..ui import dialogue_helpers, ui_helpers
@@ -39,7 +40,13 @@ from ..worlding import WorldMixin
 class Game(WorldMixin, RenderMixin):
     """Coordena o loop principal e conecta os subsistemas do jogo."""
 
-    def __init__(self, *, seed: int | None = None, smoke_test: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        seed: int | None = None,
+        smoke_test: bool = False,
+        reuse_display: bool = False,
+    ) -> None:
         self.seed = seed
         self.seed_value = seed if seed is not None else 0
         self.random = random.Random(seed)
@@ -57,7 +64,14 @@ class Game(WorldMixin, RenderMixin):
         else:
             display_size = (SCREEN_WIDTH, SCREEN_HEIGHT)
             flags = 0
-        self.screen = pygame.display.set_mode(display_size, flags)
+        existing_screen = pygame.display.get_surface() if reuse_display else None
+        if (
+            existing_screen is not None
+            and tuple(existing_screen.get_size()) == tuple(display_size)
+        ):
+            self.screen = existing_screen
+        else:
+            self.screen = pygame.display.set_mode(display_size, flags)
         self.sync_viewport_constants(*self.screen.get_size())
         self.clock = pygame.time.Clock()
         self.running = True
@@ -82,6 +96,10 @@ class Game(WorldMixin, RenderMixin):
         self.title_action_index = 0
         self.title_setting_index = 0
         self.title_settings_open = False
+        self.gameplay_settings_open = False
+        self.audio_debug_open = False
+        self.audio_debug_index = 0
+        self.audio_debug_scroll = 0
         self.tips_index = 0
         self.title_bg_phase = 0.0
         spawn_range = UI_SETTINGS.get("title_background_spawn_range", [7.0, 12.0])
@@ -107,22 +125,35 @@ class Game(WorldMixin, RenderMixin):
             )
             for key, entry in dict(UI_SETTINGS.get("runtime_ranges", {})).items()
         )
+        self.gameplay_setting_entries = tuple(
+            entry for entry in self.title_setting_entries if str(entry[0]) in {"master_volume", "ambience_volume", "music_volume"}
+        )
+        self.gameplay_setting_index = 0
         self.audio.apply_settings(self.runtime_settings)
         self.refresh_title_actions()
         self.tutorial_pages = self.create_tutorial_pages()
         self.seed_chat_log()
         self.splash_elapsed = 0.0
-        self.splash_min_duration = 1.4
+        self.splash_min_duration = 4.6
         self.splash_hint_pulse = 0.0
         self.title_intro_alpha = 0.0
         self.title_intro_speed = 320.0
+        self.loading_title = "Atravessando a mata"
+        self.loading_subtitle = "Movendo o acampamento para o proximo estado."
+        self.loading_progress = 0.0
+        self.loading_phase = 0.0
+        self.loading_overlay_active = False
+        self.loading_overlay_alpha = 0.0
+        self.loading_overlay_hold_frames = 0
+        self.loading_overlay_fade_duration = 0.28
+        self.loading_overlay_last_tick = 0.0
 
         self.player = Player(CAMP_CENTER + Vector2(20, 40))
         self.day = 1
         self.time_minutes = START_TIME_MINUTES
         self.previous_night = self.is_night
         self.focus_mode = "balanced"
-        # Estoque inicial mais folgado para o early game nao travar antes da primeira noite.
+        # Estoque inicial mais folgado para o early game não travar antes da primeira noite.
         starting_resources = dict(GAMEPLAY_SETTINGS.get("starting_resources", {}))
         self.logs = int(starting_resources.get("logs", 9))
         self.wood = int(starting_resources.get("wood", 8))
@@ -138,6 +169,7 @@ class Game(WorldMixin, RenderMixin):
         self.bonfire_ember_bed = float(bonfire_start.get("ember_bed", 52.0))
         self.event_message = "O campo desperta no meio da mata."
         self.event_timer = 8.0
+        self.game_over_reason = ""
         self.morale_flash = 0.0
         self.screen_shake = 0.0
         self.social_timer = 2.4
@@ -161,6 +193,8 @@ class Game(WorldMixin, RenderMixin):
         self.next_building_uid = 1
         self.build_requests: list[BuildingRequest] = []
         self.next_build_request_uid = 1
+        self.chief_tasks: list[ChiefTask] = []
+        self.next_chief_task_uid = 1
         self.player_sleeping = False
         self.player_sleep_slot: dict[str, object] | None = None
         self.player_sleep_elapsed = 0.0
@@ -228,6 +262,10 @@ class Game(WorldMixin, RenderMixin):
             )
 
         self.zombies: list[Zombie] = []
+        self.clock = pygame.time.Clock()
+        if not self.smoke_test and self.scenes.is_splash():
+            pygame.event.pump()
+            self.draw()
 
     def sync_viewport_constants(self, width: int, height: int) -> None:
         """Sincroniza os modulos que usam largura/altura da viewport em tempo de execucao."""
@@ -419,7 +457,7 @@ class Game(WorldMixin, RenderMixin):
 
     def save_game(self, *, auto: bool = False) -> tuple[bool, str]:
         if self.smoke_test:
-            return False, "Smoke test nao grava save."
+            return False, "Smoke test não grava save."
         try:
             self.save_repository.save(self.serialize_save_data())
         except SaveGameWriteError:
@@ -432,6 +470,75 @@ class Game(WorldMixin, RenderMixin):
 
     def load_game(self) -> tuple[bool, str]:
         return session_lifecycle.load_saved_game_flow(self)
+
+    def show_loading_screen(
+        self,
+        title: str,
+        subtitle: str,
+        *,
+        progress: float = 0.18,
+        hold_seconds: float = 0.24,
+    ) -> None:
+        self.loading_title = title
+        self.loading_subtitle = subtitle
+        self.loading_progress = max(0.0, min(1.0, progress))
+        self.loading_overlay_active = True
+        self.loading_overlay_alpha = 255.0
+        self.loading_overlay_hold_frames = 0
+        self.loading_overlay_last_tick = time.perf_counter()
+        self._present_loading_screen(hold_seconds=hold_seconds)
+
+    def update_loading_screen(
+        self,
+        *,
+        subtitle: str | None = None,
+        progress: float | None = None,
+        hold_seconds: float = 0.18,
+    ) -> None:
+        if subtitle is not None:
+            self.loading_subtitle = subtitle
+        if progress is not None:
+            self.loading_progress = max(0.0, min(1.0, progress))
+        self._present_loading_screen(hold_seconds=hold_seconds)
+
+    def complete_loading_transition(
+        self,
+        target_scene: SceneId | str,
+        *,
+        hold_frames: int = 2,
+    ) -> None:
+        self.scenes.change(target_scene)
+        self.loading_overlay_active = True
+        self.loading_overlay_alpha = 255.0
+        self.loading_overlay_hold_frames = max(1, hold_frames)
+        self.loading_overlay_last_tick = time.perf_counter()
+
+    def _present_loading_screen(self, *, hold_seconds: float) -> None:
+        deadline = time.perf_counter() + max(0.0, hold_seconds)
+        while True:
+            self.loading_phase = time.perf_counter()
+            self.scenes.change(SceneId.LOADING)
+            pygame.event.pump()
+            self.draw()
+            if time.perf_counter() >= deadline:
+                break
+            self.clock.tick(min(FPS, 60))
+
+    def update_loading_overlay_state(self) -> None:
+        if not self.loading_overlay_active or self.scenes.is_loading():
+            return
+        now = time.perf_counter()
+        delta = max(0.0, now - self.loading_overlay_last_tick)
+        self.loading_overlay_last_tick = now
+        if self.loading_overlay_hold_frames > 0:
+            self.loading_overlay_hold_frames -= 1
+            self.loading_overlay_alpha = 255.0
+            return
+        fade_step = 255.0 * (delta / max(0.01, self.loading_overlay_fade_duration))
+        self.loading_overlay_alpha = max(0.0, self.loading_overlay_alpha - fade_step)
+        if self.loading_overlay_alpha <= 0.0:
+            self.loading_overlay_active = False
+            self.loading_overlay_alpha = 0.0
 
     def selected_build_recipe(self) -> dict[str, object]:
         index = max(0, min(len(self.build_recipes) - 1, self.selected_build_slot - 1))
@@ -446,6 +553,9 @@ class Game(WorldMixin, RenderMixin):
     def title_ui_layout(self) -> dict[str, object]:
         return ui_helpers.title_ui_layout(self)
 
+    def gameplay_runtime_layout(self) -> dict[str, object]:
+        return ui_helpers.gameplay_runtime_layout(self)
+
     def tips_ui_layout(self) -> dict[str, pygame.Rect]:
         return ui_helpers.tips_ui_layout(self)
 
@@ -454,6 +564,9 @@ class Game(WorldMixin, RenderMixin):
 
     def hud_toggle_rect(self) -> pygame.Rect:
         return ui_helpers.hud_toggle_rect(self)
+
+    def runtime_panel_rect(self) -> pygame.Rect:
+        return ui_helpers.runtime_panel_rect(self)
 
     def society_card_step(self, survivor: object | None = None) -> int:
         return ui_helpers.society_card_step(self, survivor)
@@ -481,6 +594,9 @@ class Game(WorldMixin, RenderMixin):
 
     def handle_hud_input(self) -> bool:
         return ui_helpers.handle_hud_input(self)
+
+    def handle_runtime_settings_input(self) -> bool:
+        return ui_helpers.handle_runtime_settings_input(self)
 
     def handle_title_input(self) -> None:
         title_flow.handle_title_input(self)

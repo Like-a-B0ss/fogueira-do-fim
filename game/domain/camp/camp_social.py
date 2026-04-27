@@ -74,7 +74,56 @@ def latest_social_memory(survivor, topic: str | None = None) -> dict[str, object
     memories = [memory for memory in memories if float(memory.get("timer", 0.0)) > 0.0]
     if not memories:
         return None
-    return max(memories, key=lambda memory: (float(memory.get("impact", 0.0)), float(memory.get("timer", 0.0))))
+    return max(memories, key=lambda memory: (abs(float(memory.get("impact", 0.0))), float(memory.get("timer", 0.0))))
+
+
+def remember_leader_trust_state(game, survivor) -> None:
+    if survivor.trust_leader >= 78 and latest_social_memory(survivor, "leader_trust") is None:
+        remember_social_event(
+            game,
+            survivor,
+            "O chefe cumpriu comigo. Eu sigo essa voz.",
+            PALETTE["heal"],
+            topic="leader_trust",
+            impact=2.4,
+            duration=260.0,
+        )
+    elif survivor.trust_leader <= 24 and latest_social_memory(survivor, "leader_doubt") is None:
+        remember_social_event(
+            game,
+            survivor,
+            "Não sei se o chefe ainda enxerga a gente.",
+            PALETTE["danger_soft"],
+            topic="leader_doubt",
+            impact=-2.4,
+            duration=260.0,
+        )
+
+
+def remember_survivor_loss(game, lost_name: str, witnesses: list[object] | None = None) -> None:
+    candidates = witnesses if witnesses is not None else game.living_survivors()
+    for survivor in candidates:
+        if not survivor.is_alive() or survivor.name == lost_name:
+            continue
+        relation = survivor.relations.get(lost_name, 0.0)
+        if relation > 24:
+            text = f"{lost_name} era meu amigo. A clareira ficou menor."
+            impact = -3.2
+        elif relation < -24:
+            text = f"Até {lost_name} sumiu. Ninguém está seguro aqui."
+            impact = -1.4
+        else:
+            text = f"{lost_name} não voltou. Isso pesa no campo."
+            impact = -2.1
+        remember_social_event(
+            game,
+            survivor,
+            text,
+            PALETTE["danger_soft"],
+            topic="loss",
+            impact=impact,
+            duration=280.0,
+        )
 
 
 def social_memory_bias(survivor, *, topic: str | None = None) -> float:
@@ -108,6 +157,98 @@ def social_summary_text(game, survivor) -> tuple[str, tuple[int, int, int]]:
     return "Ainda estou em pe.", PALETTE["text"]
 
 
+def ambient_conversation_lines(game, survivor_a, survivor_b) -> tuple[str, str, tuple[int, int, int], str, float]:
+    relation = relationship_score(game, survivor_a, survivor_b)
+    low_food = game.food + game.meals <= max(2, len(game.living_survivors()) // 2)
+    low_fire = game.bonfire_heat < 32 or game.bonfire_ember_bed < 20
+    night = getattr(game, "is_night", False)
+
+    if relation >= 42:
+        if low_fire:
+            return (
+                "Fica perto. O fogo baixo deixa tudo maior.",
+                "Eu fico. Só não deixa eu pensar sozinho.",
+                PALETTE["morale"],
+                "bond",
+                1.2,
+            )
+        if low_food:
+            return (
+                "Quando a comida voltar, eu divido minha parte com você.",
+                "Guarda promessa para quando tiver prato. Mas eu ouvi.",
+                PALETTE["accent_soft"],
+                "bond",
+                1.0,
+            )
+        return (
+            "Lembra de quando a gente achava silêncio bom?",
+            "Lembro. Hoje silêncio precisa provar que não morde.",
+            PALETTE["morale"],
+            "bond",
+            1.1,
+        )
+
+    if relation <= -30:
+        return (
+            "Você pisa como se o campo fosse seu.",
+            "E você reclama como se isso levantasse cerca.",
+            PALETTE["danger_soft"],
+            "feud",
+            -1.1,
+        )
+
+    if night:
+        return (
+            "Você também ouviu isso na linha das árvores?",
+            "Ouvi. Fala baixo e continua andando.",
+            PALETTE["muted"],
+            "fear",
+            -0.4,
+        )
+    if survivor_a.state == survivor_b.state and survivor_a.state not in {"idle", "sleep"}:
+        return (
+            "Se a gente terminar isso junto, sobra um pouco de força.",
+            "Então não para. Eu acompanho.",
+            PALETTE["accent_soft"],
+            "work",
+            0.6,
+        )
+    return (
+        "Você ainda pensa em antes?",
+        "Penso. Só tento não morar lá.",
+        PALETTE["text"],
+        "past",
+        0.4,
+    )
+
+
+def maybe_start_ambient_conversation(game, survivor_a, survivor_b, relation: float, pressure: float) -> bool:
+    if survivor_a.social_comment_cooldown > 0 or survivor_b.social_comment_cooldown > 0:
+        return False
+    if survivor_a.state in {"sleep", "guard", "watchtower"} or survivor_b.state in {"sleep", "guard", "watchtower"}:
+        return False
+    chance = 0.035
+    if survivor_a.distance_to(game.bonfire_pos) < 190 and survivor_b.distance_to(game.bonfire_pos) < 190:
+        chance += 0.035
+    if relation >= 35:
+        chance += 0.03
+    elif relation <= -28:
+        chance += 0.018 + pressure * 0.02
+    if game.random.random() >= chance:
+        return False
+
+    first, second, color, topic, impact = ambient_conversation_lines(game, survivor_a, survivor_b)
+    trigger_survivor_bark(game, survivor_a, first, color, duration=3.2)
+    if game.random.random() < 0.86:
+        game.add_chat_message(survivor_b.name, second, color, source="npc")
+    remember_social_event(game, survivor_a, f"{survivor_b.name}: {second}", color, topic=topic, impact=impact, duration=150.0)
+    remember_social_event(game, survivor_b, f"{survivor_a.name}: {first}", color, topic=topic, impact=impact, duration=150.0)
+    adjust_relationship(game, survivor_a, survivor_b, clamp(impact, -1.2, 1.4))
+    survivor_a.social_comment_cooldown = game.random.uniform(18.0, 30.0)
+    survivor_b.social_comment_cooldown = game.random.uniform(18.0, 30.0)
+    return True
+
+
 def contextual_build_request_reason(game, survivor, kind: str) -> tuple[str, str]:
     friend = game.best_friend_name(survivor)
     rival = game.rival_name(survivor)
@@ -127,7 +268,7 @@ def contextual_build_request_reason(game, survivor, kind: str) -> tuple[str, str
         return bark, reason
     if kind == "enfermaria":
         bark = "Chefe, precisamos de enfermaria."
-        reason = "os feridos e a pressao da mata pedem cuidado mais serio"
+        reason = "os feridos e a pressão da mata pedem cuidado mais sério"
         return bark, reason
     if kind == "horta":
         bark = "Chefe, a terra podia trabalhar pra gente."
@@ -161,6 +302,14 @@ def directive_compliance_modifier(game, survivor, directive: str) -> float:
         modifier += 0.08
     if directive in {"wood", "food"} and latest_social_memory(survivor, "feud"):
         modifier -= 0.05
+    if latest_social_memory(survivor, "leader_trust"):
+        modifier += 0.09
+    if latest_social_memory(survivor, "leader_doubt"):
+        modifier -= 0.1
+    if latest_social_memory(survivor, "loss") and directive not in {"rest", "clinic", "fire"}:
+        modifier -= 0.05
+    if latest_social_memory(survivor, "expedition_saved") and directive in {"guard", "repair", "food"}:
+        modifier += 0.06
     if survivor.trust_leader < 30 and directive not in {"rest", "fire"}:
         modifier -= 0.06
     return modifier
@@ -187,9 +336,9 @@ def survivor_bark_options(game, survivor) -> list[tuple[str, tuple[int, int, int
     crisis = game.dynamic_event_for_survivor(survivor)
     active_event = game.active_dynamic_event()
     if crisis and crisis.kind == "doenca":
-        lines.extend((("To queimando por dentro.", PALETTE["danger_soft"]), ("Nao me deixa apagar aqui.", PALETTE["danger_soft"])))
+        lines.extend((("Tô queimando por dentro.", PALETTE["danger_soft"]), ("Não me deixa apagar aqui.", PALETTE["danger_soft"])))
     elif crisis and crisis.kind in {"fuga", "desercao"}:
-        lines.extend((("Nao da mais pra segurar!", PALETTE["danger_soft"]), ("Eu preciso sumir da trilha.", PALETTE["danger_soft"])))
+        lines.extend((("Não dá mais pra segurar!", PALETTE["danger_soft"]), ("Eu preciso sumir da trilha.", PALETTE["danger_soft"])))
     elif active_event and active_event.kind == "incendio":
         lines.extend((("Fogo no campo!", PALETTE["danger_soft"]), ("Traz agua, agora!", PALETTE["danger_soft"])))
     elif active_event and active_event.kind == "alarme":
@@ -207,17 +356,17 @@ def survivor_bark_options(game, survivor) -> list[tuple[str, tuple[int, int, int
     if game.food + game.meals <= max(2, len(game.living_survivors()) // 2):
         lines.extend((("A panela ta vazia.", PALETTE["accent_soft"]), ("A fome vai virar briga.", PALETTE["accent_soft"])))
     if survivor.health < 42:
-        lines.extend((("Preciso de curativo.", PALETTE["heal"]), ("Nao aguento mais um golpe.", PALETTE["heal"])))
+        lines.extend((("Preciso de curativo.", PALETTE["heal"]), ("Não aguento mais um golpe.", PALETTE["heal"])))
     if survivor.insanity > 74:
         lines.extend((("A mata ta falando comigo.", PALETTE["morale"]), ("Tem olho demais na escuridao.", PALETTE["morale"])))
     if survivor.trust_leader < 34:
-        lines.extend((("Chefe, voce sumiu demais.", PALETTE["muted"]), ("A gente ta segurando isso no osso.", PALETTE["muted"])))
+        lines.extend((("Chefe, você sumiu demais.", PALETTE["muted"]), ("A gente tá segurando isso no osso.", PALETTE["muted"])))
     if survivor.has_trait("leal") and game.player.distance_to(survivor.pos) < 150:
         lines.extend((("Eu seguro contigo, chefe.", PALETTE["heal"]), ("Da a ordem que eu vou.", PALETTE["heal"])))
     if survivor.has_trait("sociavel") and game.player.distance_to(game.bonfire_pos) < 180:
         lines.extend((("Fica perto do fogo com a gente.", PALETTE["morale"]), ("Uma historia segura mais que faca.", PALETTE["morale"])))
     if survivor.has_trait("paranoico") and game.is_night:
-        lines.extend((("Tem coisa na linha das arvores.", PALETTE["danger_soft"]), ("Nao confio nesse silencio.", PALETTE["danger_soft"])))
+        lines.extend((("Tem coisa na linha das árvores.", PALETTE["danger_soft"]), ("Não confio nesse silêncio.", PALETTE["danger_soft"])))
 
     friend = game.best_friend_name(survivor)
     rival = game.rival_name(survivor)
@@ -235,7 +384,7 @@ def survivor_bark_options(game, survivor) -> list[tuple[str, tuple[int, int, int
                 ("Mais um turno e a gente segura.", PALETTE["text"]),
                 ("Se o fogo fica vivo, eu fico tambem.", PALETTE["text"]),
                 ("Essa mata cobra tudo da gente.", PALETTE["muted"]),
-                ("So nao me deixa sem rumo, chefe.", PALETTE["muted"]),
+                ("Só não me deixa sem rumo, chefe.", PALETTE["muted"]),
             )
         )
     return lines
@@ -271,7 +420,7 @@ def survivors_react_to_event(game, event, *, resolved: bool | None = None) -> No
         "desercao": ("Ainda ficamos inteiros.", PALETTE["morale"]) if resolved else ("Perdemos mais um.", PALETTE["danger_soft"]),
         "abrigo": ("Tem mais um no fogo.", PALETTE["morale"]) if resolved else ("Ele seguiu sozinho.", PALETTE["muted"]),
         "expedicao": ("A trilha respondeu.", PALETTE["heal"]) if resolved else ("A rota ficou pior.", PALETTE["danger_soft"]),
-        "faccao": ("Eles vao lembrar disso.", PALETTE["accent_soft"]) if resolved else ("Ninguem sai limpo disso.", PALETTE["muted"]),
+        "faccao": ("Eles vão lembrar disso.", PALETTE["accent_soft"]) if resolved else ("Ninguém sai limpo disso.", PALETTE["muted"]),
         "alarme": ("Linha segura por enquanto.", PALETTE["heal"]) if resolved else ("Eles acharam a cerca.", PALETTE["danger_soft"]),
     }
     text, color = event_reactions.get(event.kind, ("Segura firme.", PALETTE["text"]))
@@ -400,7 +549,7 @@ def initialize_survivor_relationships(game) -> None:
 
 
 def update_social_dynamics(game, dt: float) -> None:
-    """Atualiza amizade, conflitos e pressao social ao longo do tempo."""
+    """Atualiza amizade, conflitos e pressão social ao longo do tempo."""
     game.social_timer -= dt
     if game.social_timer > 0:
         return
@@ -436,6 +585,7 @@ def update_social_dynamics(game, dt: float) -> None:
         if survivor.has_trait("leal"):
             drift += 0.18
         game.adjust_trust(survivor, drift)
+        remember_leader_trust_state(game, survivor)
         insanity_shift = pressure * 5.2 + (0.8 if survivor.has_trait("paranoico") else 0.0)
         insanity_shift -= social_memory_bias(survivor) * 0.12
         insanity_shift += max(0.0, 48 - survivor.morale) * 0.035
@@ -488,7 +638,7 @@ def update_social_dynamics(game, dt: float) -> None:
                 midpoint = survivor_a.pos.lerp(survivor_b.pos, 0.5)
                 game.spawn_floating_text("briga", midpoint, PALETTE["danger_soft"])
                 game.set_event_message(f"{survivor_a.name} e {survivor_b.name} bateram de frente no campo.", duration=4.8)
-                remember_social_event(game, survivor_a, f"Nao esqueci a briga com {survivor_b.name}.", PALETTE["danger_soft"], topic="feud", impact=-2.8, duration=180.0)
+                remember_social_event(game, survivor_a, f"Não esqueci a briga com {survivor_b.name}.", PALETTE["danger_soft"], topic="feud", impact=-2.8, duration=180.0)
                 remember_social_event(game, survivor_b, f"{survivor_a.name} ainda ta atravessado comigo.", PALETTE["danger_soft"], topic="feud", impact=-2.8, duration=180.0)
                 survivor_a.social_comment_cooldown = game.random.uniform(6.0, 10.0)
                 survivor_b.social_comment_cooldown = game.random.uniform(6.0, 10.0)
@@ -521,8 +671,11 @@ def update_social_dynamics(game, dt: float) -> None:
                 survivor_a.bond_cooldown = 12.0
                 survivor_b.bond_cooldown = 12.0
                 remember_social_event(game, survivor_a, f"{survivor_b.name} baixou a guarda por um minuto.", PALETTE["accent_soft"], topic="repair", impact=0.9, duration=120.0)
-                remember_social_event(game, survivor_b, f"{survivor_a.name} nao veio pra cima dessa vez.", PALETTE["accent_soft"], topic="repair", impact=0.9, duration=120.0)
+                remember_social_event(game, survivor_b, f"{survivor_a.name} não veio pra cima dessa vez.", PALETTE["accent_soft"], topic="repair", impact=0.9, duration=120.0)
                 continue
+
+        if maybe_start_ambient_conversation(game, survivor_a, survivor_b, relation, pressure):
+            continue
 
         if same_job and relation < 20:
             game.adjust_relationship(survivor_a, survivor_b, 0.8)

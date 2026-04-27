@@ -108,11 +108,16 @@ def visible_fog_reveals(game: "Game", view_rect: pygame.Rect) -> list[tuple[Vect
 
 
 def reveal_world_around_player(game: "Game") -> None:
-    game.record_fog_reveal(game.player.pos, 186)
+    mist = game.weather_mist_factor() if hasattr(game, "weather_mist_factor") else 0.0
+    storm = game.weather_storm_factor() if hasattr(game, "weather_storm_factor") else 0.0
+    player_reveal_radius = max(124, 186 - mist * 46 - storm * 18)
+    survivor_reveal_radius = max(70, 92 - mist * 20 - storm * 8)
+
+    game.record_fog_reveal(game.player.pos, player_reveal_radius)
     if game.player.distance_to(game.bonfire_pos) < game.camp_clearance_radius() + 40:
         game.record_fog_reveal(CAMP_CENTER, game.camp_clearance_radius() + 88)
     for survivor in game.living_survivors():
-        game.record_fog_reveal(survivor.pos, 92)
+        game.record_fog_reveal(survivor.pos, survivor_reveal_radius)
 
 
 def feature_label(_game: "Game", kind: str) -> str:

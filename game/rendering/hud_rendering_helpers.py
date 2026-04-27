@@ -36,15 +36,29 @@ def draw_resource_meter(
     value: int,
     label: str,
     color: tuple[int, int, int],
+    capacity: int | None = None,
 ) -> None:
-    rect = pygame.Rect(x, y, width, 36)
+    rect = pygame.Rect(x, y, width, 38)
     pygame.draw.rect(game.screen, PALETTE["ui_panel"], rect, border_radius=12)
-    pygame.draw.rect(game.screen, (18, 22, 24), pygame.Rect(x + 1, y + 1, width - 2, 34), 1, border_radius=12)
-    pygame.draw.rect(game.screen, color, pygame.Rect(x + 8, y + 8, 20, 20), border_radius=7)
-    label_surface = game.small_font.render(label, True, PALETTE["muted"])
-    value_surface = game.body_font.render(str(value), True, PALETTE["text"])
-    game.screen.blit(label_surface, (x + 36, y + 6))
-    game.screen.blit(value_surface, (x + 36, y + 16))
+    pygame.draw.rect(game.screen, (18, 22, 24), rect.inflate(-2, -2), 1, border_radius=12)
+    pygame.draw.rect(game.screen, color, pygame.Rect(rect.right - 16, y + 7, 8, 8), border_radius=3)
+
+    text_width = width - 16
+    label_text = game.fit_text_to_width(game.small_font, label, text_width - 12)
+    label_surface = game.small_font.render(label_text, True, PALETTE["muted"])
+    if capacity is None:
+        value_text = str(value)
+        value_font = game.body_font
+    else:
+        value_text = str(value) if capacity >= 999 else f"{value}/{capacity}"
+        value_font = game.small_font
+    if value_font.size(value_text)[0] > text_width:
+        value_text = str(value)
+    value_text = game.fit_text_to_width(value_font, value_text, text_width)
+    value_surface = value_font.render(value_text, True, PALETTE["text"])
+
+    game.screen.blit(label_surface, (x + 8, y + 5))
+    game.screen.blit(value_surface, (x + 8, y + 19))
 
 
 def draw_resource_bar(

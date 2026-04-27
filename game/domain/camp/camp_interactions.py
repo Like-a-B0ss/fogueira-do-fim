@@ -16,7 +16,7 @@ def nearest_interaction_hint(world) -> tuple[Vector2, str] | None:
         if active_event.kind == "abrigo" and player.distance_to(active_event.pos) < 114:
             return active_event.pos, "E acolher forasteiro"
         if active_event.kind == "incendio" and player.distance_to(active_event.pos) < 118:
-            return active_event.pos, "E conter incendio"
+            return active_event.pos, "E conter incêndio"
         if active_event.kind == "alarme" and player.distance_to(active_event.pos) < 120:
             return active_event.pos, "E responder ao alarme da cerca"
         if active_event.kind in {"fuga", "desercao", "doenca"}:
@@ -27,7 +27,7 @@ def nearest_interaction_hint(world) -> tuple[Vector2, str] | None:
             if target and player.distance_to(target.pos) < 96:
                 prompt_map = {
                     "fuga": "E acalmar morador",
-                    "desercao": "E impedir desercao",
+                    "desercao": "E impedir deserção",
                     "doenca": "E estabilizar doente",
                 }
                 return target.pos, prompt_map.get(active_event.kind, "E interagir")
@@ -47,18 +47,18 @@ def nearest_interaction_hint(world) -> tuple[Vector2, str] | None:
 
     for barricade in world.barricades:
         if barricade.health < barricade.max_health and world.wood >= 1 and player.distance_to(barricade.pos) < 92:
-            return barricade.pos, "E reforcar barricada"
+            return barricade.pos, "E reforçar barricada"
         if player.distance_to(barricade.pos) < 92:
             if getattr(barricade, "spike_level", 0) >= 3:
-                return barricade.pos, "Spikes no maximo"
+                return barricade.pos, "Spikes no máximo"
             wood_cost, scrap_cost = world.barricade_upgrade_cost(barricade)
-            return barricade.pos, f"E melhorar spikes ({wood_cost} tabuas, {scrap_cost} sucata)"
+            return barricade.pos, f"E melhorar spikes ({wood_cost} tábuas, {scrap_cost} sucata)"
 
     if player.distance_to(world.workshop_pos) < 108:
         if world.can_use_workshop_saw():
             if world.can_expand_camp():
-                return world.workshop_pos, "E cortar tabuas  |  Q ampliar acampamento"
-            return world.workshop_pos, "E cortar tabuas na oficina"
+                return world.workshop_pos, "E cortar tábuas  |  Q ampliar acampamento"
+            return world.workshop_pos, "E cortar tábuas na oficina"
         if world.can_expand_camp():
             return world.workshop_pos, "E ampliar acampamento"
         if world.camp_level < world.max_camp_level:
@@ -74,16 +74,16 @@ def nearest_interaction_hint(world) -> tuple[Vector2, str] | None:
 
     if player.distance_to(world.radio_pos) < 104:
         if world.active_expedition:
-            return world.radio_pos, "E revisar expedicao  |  Q recolher equipe"
+            return world.radio_pos, "E revisar expedição  |  Q recolher equipe"
         target_region = world.best_expedition_region()
         if target_region:
-            return world.radio_pos, f"E enviar expedicao para {target_region['name']}"
-        return world.radio_pos, "Sem regiao conhecida para expedicao"
+            return world.radio_pos, f"E enviar expedição para {target_region['name']}"
+        return world.radio_pos, "Sem região conhecida para expedição"
 
     if player.distance_to(world.bonfire_pos) < 100:
         if world.available_fuel() >= 1:
             return world.bonfire_pos, "E alimentar fogueira"
-        return world.bonfire_pos, "Sem combustivel para o fogo"
+        return world.bonfire_pos, "Sem combustível para o fogo"
 
     infirmary = world.nearest_building_of_kind("enfermaria", player.pos)
     if infirmary and player.distance_to(infirmary.pos) < 96:
@@ -102,7 +102,7 @@ def nearest_interaction_hint(world) -> tuple[Vector2, str] | None:
 
 
 def mouse_interaction_target(world, cursor_world: Vector2) -> dict[str, object] | None:
-    """Escolhe um alvo de interacao pelo mouse para aliviar a proximidade no acampamento."""
+    """Escolhe um alvo de interação pelo mouse para aliviar a proximidade no acampamento."""
     candidates: list[tuple[float, dict[str, object]]] = []
 
     def consider(kind: str, pos: Vector2, *, radius: float, reach: float, obj: object | None = None) -> None:
@@ -151,7 +151,7 @@ def mouse_interaction_target(world, cursor_world: Vector2) -> dict[str, object] 
     consider("bonfire", Vector2(world.bonfire_pos), radius=46, reach=130)
 
     for building in world.buildings:
-        if building.kind in {"serraria", "cozinha", "horta", "anexo", "torre", "enfermaria"}:
+        if building.kind in {"serraria", "cozinha", "horta", "anexo", "torre", "enfermaria", "estoque"}:
             consider(
                 f"building:{building.kind}",
                 Vector2(building.pos),
@@ -182,7 +182,7 @@ def hovered_interaction_target(world) -> dict[str, object] | None:
 
 
 def prompt_for_interaction_target(world, target: dict[str, object]) -> str | None:
-    """Traduz um alvo do mouse para o texto curto de interacao exibido na HUD."""
+    """Traduz um alvo do mouse para o texto curto de interação exibido na HUD."""
     kind = str(target.get("kind", ""))
     obj = target.get("obj")
 
@@ -197,13 +197,13 @@ def prompt_for_interaction_target(world, target: dict[str, object]) -> str | Non
         if event_kind == "abrigo":
             return "E acolher forasteiro"
         if event_kind == "incendio":
-            return "E conter incendio"
+            return "E conter incêndio"
         if event_kind == "alarme":
             return "E responder ao alarme da cerca"
         if event_kind == "fuga":
             return "E acalmar morador"
         if event_kind == "desercao":
-            return "E impedir desercao"
+            return "E impedir deserção"
         if event_kind == "doenca":
             return "E estabilizar doente"
     if kind == "downed_member" and obj:
@@ -216,16 +216,16 @@ def prompt_for_interaction_target(world, target: dict[str, object]) -> str | Non
         return "E vasculhar sucata"
     if kind == "barricade" and obj:
         if obj.health < obj.max_health and world.wood >= 1:
-            return "E reforcar barricada"
+            return "E reforçar barricada"
         if getattr(obj, "spike_level", 0) >= 3:
-            return "Spikes no maximo"
+            return "Spikes no máximo"
         wood_cost, scrap_cost = world.barricade_upgrade_cost(obj)
-        return f"E melhorar spikes ({wood_cost} tabuas, {scrap_cost} sucata)"
+        return f"E melhorar spikes ({wood_cost} tábuas, {scrap_cost} sucata)"
     if kind == "workshop":
         if world.can_use_workshop_saw():
             if world.can_expand_camp():
-                return "E cortar tabuas  |  Q ampliar acampamento"
-            return "E cortar tabuas na oficina"
+                return "E cortar tábuas  |  Q ampliar acampamento"
+            return "E cortar tábuas na oficina"
         if world.can_expand_camp():
             return "E ampliar acampamento"
         if world.camp_level < world.max_camp_level:
@@ -234,13 +234,13 @@ def prompt_for_interaction_target(world, target: dict[str, object]) -> str | Non
         return "Oficina livre"
     if kind == "radio":
         if world.active_expedition:
-            return "E revisar expedicao  |  Q recolher equipe"
+            return "E revisar expedição  |  Q recolher equipe"
         target_region = world.best_expedition_region()
         if target_region:
-            return f"E enviar expedicao para {target_region['name']}"
-        return "Sem regiao conhecida para expedicao"
+            return f"E enviar expedição para {target_region['name']}"
+        return "Sem região conhecida para expedição"
     if kind == "bonfire":
-        return "E alimentar fogueira" if world.available_fuel() >= 1 else "Sem combustivel para o fogo"
+        return "E alimentar fogueira" if world.available_fuel() >= 1 else "Sem combustível para o fogo"
     if kind == "sleep":
         return "E dormir e acelerar o tempo" if not world.active_dynamic_events else "Crise ativa impede descanso"
     if kind.startswith("building:") and obj:
