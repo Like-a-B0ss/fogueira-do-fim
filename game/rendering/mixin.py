@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import pygame
 from pygame import Vector2
 
@@ -15,20 +13,10 @@ from . import world_resource_rendering
 from . import world_scenery_rendering
 from . import world_signals_rendering
 from ..application import title_flow
-from ..entities import Survivor, Zombie
+from ..entities import Survivor
 from ..core.config import (
-    CAMP_CENTER,
-    CAMP_RADIUS,
-    CHUNK_SIZE,
-    FOCUS_LABELS,
     PALETTE,
-    ROLE_COLORS,
-    SCREEN_HEIGHT,
-    SCREEN_WIDTH,
-    angle_to_vector,
     clamp,
-    format_clock,
-    lerp,
 )
 
 
@@ -199,12 +187,3 @@ class RenderMixin:
 
     def current_objectives(self) -> list[str]:
         return hud_rendering_helpers.current_objectives(self)
-
-
-
-
-
-
-
-
-

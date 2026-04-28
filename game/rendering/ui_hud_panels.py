@@ -243,11 +243,3 @@ def current_objectives(game) -> list[str]:
             if len(task_directives) >= 3:
                 break
     return task_directives or ["Sem tarefas ativas no momento."]
-
-
-
-
-
-
-
-

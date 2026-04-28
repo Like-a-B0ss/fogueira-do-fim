@@ -291,10 +291,3 @@ def update_music(audio, game) -> None:
     else:
         audio._play("music_dread", volume_scale=0.22, category="music")
         audio.music_timer = audio.rng.uniform(4.2, 6.6)
-
-
-
-
-
-
-

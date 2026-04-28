@@ -762,12 +762,3 @@ def should_survivor_sleep(game, survivor) -> bool:
     if afternoon_lull and survivor.energy < 54 and getattr(survivor, "sleep_debt", 0.0) > 30:
         return True
     return survivor.energy < 22
-
-
-
-
-
-
-
-
-

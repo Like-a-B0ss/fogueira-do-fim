@@ -7,5 +7,3 @@ __all__ = [
     "title_flow",
     "weather_service",
 ]
-
-

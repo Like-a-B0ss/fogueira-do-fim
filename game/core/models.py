@@ -188,11 +188,3 @@ class DynamicEvent:
     building_uid: int | None = None
     data: dict[str, object] = field(default_factory=dict)
     resolved: bool = False
-
-
-
-
-
-
-
-

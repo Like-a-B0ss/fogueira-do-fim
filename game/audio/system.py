@@ -325,10 +325,3 @@ class AudioSystem:
 
     def _make_music_frontend(self, seed: int, profile: str = "veil") -> pygame.mixer.Sound:
         return audio_synthesis.make_music_frontend(self, seed, profile)
-
-
-
-
-
-
-

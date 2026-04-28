@@ -321,12 +321,3 @@ def update_bonfire(game: "Game", dt: float) -> None:
             0,
             100,
         )
-
-
-
-
-
-
-
-
-

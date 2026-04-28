@@ -199,10 +199,3 @@ def update_background_simulation(game: "Game", dt: float) -> None:
     )
     game.camera.center_on(orbit)
     game.audio.update(game, dt)
-
-
-
-
-
-
-

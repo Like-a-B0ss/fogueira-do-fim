@@ -209,11 +209,3 @@ def draw_barricades(game, shake_offset: Vector2) -> None:
         if spike_level > 0:
             spike_label = game.small_font.render(f"S{spike_level}", True, PALETTE["accent_soft"])
             game.screen.blit(spike_label, spike_label.get_rect(midbottom=(pos.x, bar_rect.y - 2)))
-
-
-
-
-
-
-
-

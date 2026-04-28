@@ -67,11 +67,3 @@ def draw_build_menu(game) -> None:
         )
         game.screen.blit(label, (rect.x + 10, rect.y + 4))
         game.screen.blit(cost, (rect.x + 10, rect.y + 18))
-
-
-
-
-
-
-
-

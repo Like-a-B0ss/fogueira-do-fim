@@ -136,10 +136,3 @@ def update_weather(game: "Game", dt: float) -> None:
     shown_kind = game.weather_target_kind if blend > 0.55 else game.weather_kind
     shown_strength = lerp(game.weather_strength, game.weather_target_strength, blend)
     game.weather_label = game.weather_display_name(shown_kind, shown_strength)
-
-
-
-
-
-
-

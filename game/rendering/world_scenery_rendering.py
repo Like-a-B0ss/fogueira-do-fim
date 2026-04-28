@@ -618,11 +618,3 @@ def draw_bonfire(game, shake_offset: Vector2) -> None:
 
     if game.random.random() < (0.22 + heat_ratio * 0.34 + ember_ratio * 0.12):
         game.emit_embers(game.bonfire_pos + Vector2(game.random.uniform(-8, 8), -8), 1)
-
-
-
-
-
-
-
-

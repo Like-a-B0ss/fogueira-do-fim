@@ -125,12 +125,3 @@ def update_player_biome(game: "Game") -> None:
         game.current_biome_key = biome_key
         game.current_biome_label = label
         game.spawn_floating_text(label.lower(), game.player.pos + Vector2(0, -38), PALETTE["muted"])
-
-
-
-
-
-
-
-
-

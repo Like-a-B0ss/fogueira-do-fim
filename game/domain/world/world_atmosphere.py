@@ -125,12 +125,3 @@ def weather_mood_label(world) -> str:
     if cloud > 0.34:
         return "nublado leve" if cloud < 0.62 else "nublado pesado"
     return "ceu aberto" if cloud < 0.14 else "claridade limpa"
-
-
-
-
-
-
-
-
-

@@ -66,12 +66,3 @@ def closest_target(world, pos: Vector2):
     if not living:
         return None
     return min(living, key=lambda actor: actor.pos.distance_to(pos))
-
-
-
-
-
-
-
-
-

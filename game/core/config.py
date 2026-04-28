@@ -262,10 +262,3 @@ def load_font(size: int, *, title: bool = False, bold: bool = False) -> pygame.f
         choices = "Constantia,Georgia,Palatino Linotype,Cambria"
     path = pygame.font.match_font(choices, bold=bold)
     return pygame.font.Font(path, size)
-
-
-
-
-
-
-

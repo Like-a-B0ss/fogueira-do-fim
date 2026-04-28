@@ -248,12 +248,3 @@ def prompt_for_interaction_target(world, target: dict[str, object]) -> str | Non
     if kind == "survivor" and obj:
         return f"E conversar com {obj.name.lower()}"
     return None
-
-
-
-
-
-
-
-
-

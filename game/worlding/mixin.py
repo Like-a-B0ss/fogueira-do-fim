@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-import math
-
 import pygame
 from pygame import Vector2
 
 from ..entities import Actor, Survivor, Zombie
-from ..core.config import (
-    PALETTE,
-    ROLE_COLORS,
-    clamp,
-)
+from ..core.config import PALETTE, clamp
 from ..domain.camp import camp_construction, camp_interactions, camp_lifecycle, camp_priorities, camp_residents, camp_social, chief_tasks, economy
 from ..domain.combat import threats
 from ..domain.events import dynamic_events, expeditions
 from ..domain.resources import resource_gathering, resource_generation
 from ..domain.world import exploration, world_atmosphere, world_basics, world_context, world_generation, world_runtime, world_visuals, zones
 from ..core.models import Barricade, Building, BuildingRequest, ChiefTask, DynamicEvent, InterestPoint, ResourceNode, WorldFeature
+
+
 class WorldMixin:
     def unlimited_resources_enabled(self) -> bool:
         return world_basics.unlimited_resources_enabled(self)
@@ -928,15 +924,3 @@ class WorldMixin:
 
     def spawn_night_zombie(self) -> None:
         threats.spawn_night_zombie(self)
-
-
-
-
-
-
-
-
-
-
-
-

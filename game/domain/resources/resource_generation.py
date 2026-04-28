@@ -159,12 +159,3 @@ def random_resource_pos(game: "Game", min_distance: float, max_distance: float) 
     distance = game.random.uniform(min_distance, max_distance)
     pos = CAMP_CENTER + angle_to_vector(angle) * distance
     return Vector2(clamp(pos.x, 80, WORLD_WIDTH - 80), clamp(pos.y, 80, WORLD_HEIGHT - 80))
-
-
-
-
-
-
-
-
-

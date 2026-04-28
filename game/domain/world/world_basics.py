@@ -93,12 +93,3 @@ def is_near_path(world, pos: Vector2, radius: float) -> bool:
             if pos.distance_squared_to(point) <= radius_sq:
                 return True
     return False
-
-
-
-
-
-
-
-
-

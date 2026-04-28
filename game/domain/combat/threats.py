@@ -216,12 +216,3 @@ def spawn_night_zombie(game: "Game") -> None:
     zombie.camp_pressure = clamp((0.92 if spawn_center == CAMP_CENTER or game.horde_active else 0.6) - tower_pressure, 0.35, 1.0)
     game.zombies.append(zombie)
     game.spawn_budget -= 1
-
-
-
-
-
-
-
-
-

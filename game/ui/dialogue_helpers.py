@@ -528,10 +528,3 @@ def submit_chat_message(game, text: str) -> None:
         return
     random_chat_reply(game, clean_text)
     game.audio.play_ui("focus")
-
-
-
-
-
-
-

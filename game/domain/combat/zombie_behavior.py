@@ -316,12 +316,3 @@ def _roam(zombie, game: "Game", dt: float) -> None:
     roam_radius = 160 if zombie.is_boss else 190 + zombie.camp_pressure * 80
     roam = roam_center + angle_to_vector(zombie.shamble) * roam_radius
     zombie.move_toward(roam, dt, 0.54 if zombie.is_boss else 0.58)
-
-
-
-
-
-
-
-
-

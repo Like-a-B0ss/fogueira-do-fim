@@ -437,11 +437,3 @@ def draw_zombie_weapon(game, pos: Vector2, zombie: Zombie) -> None:
         )
     elif zombie.weapon_name == "barra":
         pygame.draw.line(game.screen, (134, 114, 90), pos + Vector2(-2, -8), pos + Vector2(14, 12), 3)
-
-
-
-
-
-
-
-

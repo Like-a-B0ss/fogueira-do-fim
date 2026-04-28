@@ -507,12 +507,3 @@ def perform_mouse_interaction(
         game.open_survivor_dialog(obj)
         game.spawn_floating_text(f"falando com {obj.name.lower()}", obj.pos, PALETTE["accent_soft"])
         game.audio.play_ui("order")
-
-
-
-
-
-
-
-
-

@@ -45,12 +45,3 @@ def survivor_focus_override(game: "Game", survivor: "Survivor") -> tuple[str, ob
         if not game.buildings_of_kind("serraria") and survivor.role in {"artesa", "lenhador"} and game.logs > 0 and survivor.energy > 24:
             return ("roughcut", game.workshop_pos)
     return None
-
-
-
-
-
-
-
-
-

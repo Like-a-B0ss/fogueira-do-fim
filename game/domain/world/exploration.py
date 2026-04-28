@@ -132,12 +132,3 @@ def feature_label(_game: "Game", kind: str) -> str:
         "quarry": "Pedreira Morta",
         "camp": "Clareira do Campo",
     }.get(kind, "Mata Fechada")
-
-
-
-
-
-
-
-
-

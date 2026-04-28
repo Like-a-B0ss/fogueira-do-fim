@@ -143,12 +143,3 @@ def begin_day(game: "Game") -> None:
     else:
         game.set_event_message(f"O amanhecer trouxe folego para a sociedade da clareira. Fase: {phase_label}.")
     game.audio.play_transition("daybreak")
-
-
-
-
-
-
-
-
-

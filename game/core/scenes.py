@@ -68,10 +68,3 @@ class SceneManager:
 
     def is_game_over(self) -> bool:
         return self.current.scene_id is SceneId.GAME_OVER
-
-
-
-
-
-
-

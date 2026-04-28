@@ -49,11 +49,3 @@ class CameraRig:
 
     def world_to_screen(self, position: Vector2) -> Vector2:
         return Vector2(position) - self.position
-
-
-
-
-
-
-
-

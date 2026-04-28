@@ -643,10 +643,3 @@ class SaveGameCodec:
         if not game.chat_messages:
             game.seed_chat_log()
         game.clamp_chat_scroll()
-
-
-
-
-
-
-

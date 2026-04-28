@@ -779,12 +779,3 @@ def expand_camp(world) -> bool:
     world.spawn_floating_text("acampamento ampliado", world.workshop_pos, PALETTE["accent_soft"])
     world.emit_embers(world.workshop_pos, 10, smoky=True)
     return True
-
-
-
-
-
-
-
-
-

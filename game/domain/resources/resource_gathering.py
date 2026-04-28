@@ -92,12 +92,3 @@ def closest_available_node(game: "Game", kind: str, origin: Vector2) -> object |
     if not candidates:
         return None
     return min(candidates, key=lambda node: node.pos.distance_to(origin))
-
-
-
-
-
-
-
-
-

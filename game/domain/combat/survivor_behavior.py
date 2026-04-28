@@ -1036,12 +1036,3 @@ def _update_shelter(survivor, dt: float) -> None:
 
 def _is_survivor(actor) -> bool:
     return actor.__class__.__name__ == "Survivor"
-
-
-
-
-
-
-
-
-

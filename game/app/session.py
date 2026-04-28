@@ -17,7 +17,6 @@ from ..core.config import (
     FPS,
     DISPLAY_SETTINGS,
     GAMEPLAY_SETTINGS,
-    MINUTES_PER_SECOND,
     PALETTE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
@@ -746,19 +745,3 @@ def main(argv: list[str] | None = None) -> int:
         return game.run()
     finally:
         pygame.quit()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

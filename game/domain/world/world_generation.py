@@ -126,12 +126,3 @@ def generate_chunk(world, chunk_x: int, chunk_y: int) -> None:
                 renewable=False,
             )
         )
-
-
-
-
-
-
-
-
-

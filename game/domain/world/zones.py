@@ -381,12 +381,3 @@ def resolve_defeated_zone_bosses(game: "Game") -> None:
 
 def camp_clearance_radius(game: "Game") -> float:
     return max(CAMP_RADIUS, game.camp_half_size * 1.46)
-
-
-
-
-
-
-
-
-

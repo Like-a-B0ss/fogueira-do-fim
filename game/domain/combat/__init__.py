@@ -6,7 +6,3 @@ __all__ = [
     "threats",
     "zombie_behavior",
 ]
-
-
-
-

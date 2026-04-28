@@ -365,12 +365,3 @@ def build_terrain_surface(world) -> pygame.Surface:
             world.draw_path(path_surface, path)
     surface.blit(path_surface, (0, 0))
     return surface
-
-
-
-
-
-
-
-
-

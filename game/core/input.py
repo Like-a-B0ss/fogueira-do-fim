@@ -127,10 +127,3 @@ class InputSystem:
                 state.mouse_wheel_y += int(event.y)
 
         return state
-
-
-
-
-
-
-

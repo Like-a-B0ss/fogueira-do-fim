@@ -724,12 +724,3 @@ def update_dynamic_events(game: "Game", dt: float) -> None:
 
     if event.timer <= 0:
         game.fail_dynamic_event(event)
-
-
-
-
-
-
-
-
-

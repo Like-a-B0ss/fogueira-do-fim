@@ -239,11 +239,3 @@ def draw_particles(game, shake_offset: Vector2) -> None:
         text = game.small_font.render(floating.text, True, floating.color)
         text.set_alpha(alpha)
         game.screen.blit(text, text.get_rect(center=(pos.x, pos.y)))
-
-
-
-
-
-
-
-

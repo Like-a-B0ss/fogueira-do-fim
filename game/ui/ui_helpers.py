@@ -439,10 +439,3 @@ def handle_runtime_settings_input(game) -> bool:
         return True
 
     return True
-
-
-
-
-
-
-

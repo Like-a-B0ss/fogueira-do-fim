@@ -587,11 +587,3 @@ def draw_exit_prompt(game) -> None:
             PALETTE["text"],
         )
         game.screen.blit(text, text.get_rect(center=rect.center))
-
-
-
-
-
-
-
-

@@ -93,11 +93,3 @@ def draw_survivor_card(
 
 def current_objectives(game) -> list[str]:
     return ui_hud_panels.current_objectives(game)
-
-
-
-
-
-
-
-

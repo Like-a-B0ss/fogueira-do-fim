@@ -792,10 +792,3 @@ def make_music_frontend(audio, seed: int, profile: str = "veil") -> pygame.mixer
     }
 
     return synth(audio, 3.72, shared_layers + profile_layers.get(profile, profile_layers["veil"]))
-
-
-
-
-
-
-

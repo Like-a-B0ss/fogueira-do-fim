@@ -122,11 +122,3 @@ def draw_procedural_ground(game, shake_offset: Vector2) -> None:
                 veil = pygame.Surface(rect.size, pygame.SRCALPHA)
                 veil.fill((10, 14, 16, int(22 + depth * 72)))
                 game.screen.blit(veil, rect.topleft)
-
-
-
-
-
-
-
-

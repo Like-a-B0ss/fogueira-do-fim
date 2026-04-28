@@ -156,10 +156,3 @@ def load_saved_game_flow(game: "Game") -> tuple[bool, str]:
     game.complete_loading_transition(SceneId.GAMEPLAY, hold_frames=3)
     game.set_event_message("Save carregado. A clareira voltou a respirar do ponto salvo.", duration=5.4)
     return True, "Save carregado."
-
-
-
-
-
-
-

@@ -153,12 +153,3 @@ def try_recruit_survivor(world) -> None:
         profile,
         announce_message=f"{profile['name']} encontrou cama e entrou para a clareira.",
     )
-
-
-
-
-
-
-
-
-

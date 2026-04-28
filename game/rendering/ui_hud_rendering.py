@@ -397,11 +397,3 @@ def draw_info_panel(game) -> None:
             content_width,
             line_gap=1,
         ) + 5
-
-
-
-
-
-
-
-

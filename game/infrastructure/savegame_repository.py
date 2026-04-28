@@ -37,10 +37,3 @@ class JsonSaveGameRepository:
             self.save_file.write_text(payload, encoding="utf-8")
         except (OSError, TypeError, ValueError) as exc:
             raise SaveGameWriteError from exc
-
-
-
-
-
-
-

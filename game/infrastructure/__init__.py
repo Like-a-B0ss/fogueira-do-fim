@@ -4,5 +4,3 @@ __all__ = [
     "savegame_codec",
     "savegame_repository",
 ]
-
-

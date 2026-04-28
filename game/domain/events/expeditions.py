@@ -668,12 +668,3 @@ def update_active_expedition(game: "Game", dt: float) -> None:
             )
     if expedition["timer"] <= 0:
         game.resolve_active_expedition()
-
-
-
-
-
-
-
-
-

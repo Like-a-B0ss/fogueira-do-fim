@@ -199,13 +199,3 @@ class Zombie(Actor):
 
     def update(self, game: "Game", dt: float) -> None:
         zombie_behavior.update_zombie(self, game, dt)
-
-
-
-
-
-
-
-
-
-

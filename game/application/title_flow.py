@@ -346,41 +346,6 @@ def refresh_title_actions(game: "Game") -> None:
     game.title_action_index = max(0, min(game.title_action_index, len(game.title_actions) - 1))
 
 
-def _legacy_tutorial_pages() -> tuple[dict[str, object], ...]:
-    return (
-        {
-            "eyebrow": "Lideranca da Clareira",
-            "title": "Você é o chefe do acampamento",
-            "body": "Sua presença segura moral, rotina e defesa. O grupo trabalha sozinho, mas depende de foco, fogo e direção para não quebrar.",
-            "bullets": (
-                "WASD move o chefe pela base e pela mata.",
-                "E interage com barracas, rádio, oficina, fogueira, eventos e sobreviventes.",
-                "1-4 muda a prioridade social do dia.",
-            ),
-        },
-        {
-            "eyebrow": "Sobrevivencia",
-            "title": "Tudo gira em torno de estoque e tempo",
-            "body": "O acampamento precisa de toras, tábuas, comida, remédios e sucata. A noite aperta mais, e a fogueira segura o centro da sociedade.",
-            "bullets": (
-                "Clique esquerdo ou Espaço ataca e derruba árvores.",
-                "B abre a construção; 1-8 escolhe o edifício.",
-                "E na oficina amplia a base quando houver toras e sucata.",
-            ),
-        },
-        {
-            "eyebrow": "Pressao do Mundo",
-            "title": "Explore, decida e não deixe o campo ruir",
-            "body": "Zumbis rondam a floresta, facções cobram respostas, expedições pedem resgate e a sociedade pode enlouquecer se você sumir demais.",
-            "bullets": (
-                "Q resolve decisões duras em eventos morais e facções.",
-                "F5 salva e F9 carrega sem sair da partida.",
-                "Enter avanca as dicas; Esc pula tudo e entra no jogo.",
-            ),
-        },
-    )
-
-
 def create_tutorial_pages() -> tuple[dict[str, object], ...]:
     return (
         {
@@ -537,10 +502,3 @@ def handle_tips_input(game: "Game") -> None:
             game.tips_index = min(page_count - 1, game.tips_index + 1)
             game.audio.play_ui("focus")
         return
-
-
-
-
-
-
-

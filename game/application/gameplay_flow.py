@@ -289,10 +289,3 @@ def handle_events(game: "Game") -> None:
         game.player.perform_mouse_interaction(game)
     if game.input_state.attack_pressed:
         game.player.perform_attack(game)
-
-
-
-
-
-
-

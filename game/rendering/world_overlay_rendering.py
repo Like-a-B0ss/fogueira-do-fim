@@ -246,11 +246,3 @@ def draw_soft_fire_tint(surface: pygame.Surface, center: Vector2, *, radius: int
         ellipse = pygame.Rect(0, 0, int(radius * 1.7 * ratio), int(radius * 0.9 * ratio))
         ellipse.center = (x, y + int(radius * 0.04))
         pygame.draw.ellipse(surface, (220, 138, 84, alpha), ellipse)
-
-
-
-
-
-
-
-
