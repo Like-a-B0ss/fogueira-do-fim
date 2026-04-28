@@ -14,6 +14,7 @@ from . import world_overlay_rendering
 from . import world_resource_rendering
 from . import world_scenery_rendering
 from . import world_signals_rendering
+from ..application import title_flow
 from ..entities import Survivor, Zombie
 from ..core.config import (
     CAMP_CENTER,
@@ -121,6 +122,8 @@ class RenderMixin:
         if self.build_menu_open and self.scenes.is_gameplay():
             ui_build_rendering.draw_build_preview(self, shake_offset)
             ui_build_rendering.draw_build_menu(self)
+        if self.controls_panel_open:
+            title_flow.draw_controls_panel(self)
         if self.exit_prompt_open and self.scenes.is_gameplay():
             ui_screen_rendering.draw_exit_prompt(self)
         if self.gameplay_settings_open and self.scenes.is_gameplay():

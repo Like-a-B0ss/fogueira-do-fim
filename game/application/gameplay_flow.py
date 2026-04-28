@@ -115,6 +115,11 @@ def handle_events(game: "Game") -> None:
             game.running = False
         return
 
+    # Verificar painel de comandos primeiro
+    if game.controls_panel_open:
+        game.handle_controls_panel_input()
+        return
+
     if game.handle_exit_prompt_input():
         return
 
@@ -222,6 +227,9 @@ def handle_events(game: "Game") -> None:
         return
 
     if game.handle_society_panel_input():
+        return
+
+    if game.handle_directive_panel_input():
         return
 
     if game.handle_hud_input():
