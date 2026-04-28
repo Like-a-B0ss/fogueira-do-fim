@@ -17,15 +17,15 @@ def seed_chat_log(game) -> None:
     game.chat_messages = []
     add_chat_message(
         game,
-        "radio",
-        "A clareira esta falando sozinha. Chegue perto de um morador e aperte E para conversar.",
+        "system",
+        "Você meses sobreviveu sozinho. Então o rádio chiou.",
         PALETTE["accent_soft"],
         source="system",
     )
     add_chat_message(
         game,
-        "radio",
-        "As vozes do campo passam por aqui, mas as ordens agora saem na conversa direta.",
+        "system",
+        "Agora você é responsável por todas essas vidas. Approxime-se de um morador e aperte E para conversar.",
         PALETTE["muted"],
         source="system",
     )
@@ -159,6 +159,7 @@ def active_dialog_survivor(game) -> object | None:
 
 def open_survivor_dialog(game, survivor: object) -> None:
     game.dialog_survivor_name = getattr(survivor, "name", None)
+    game.chat_panel_collapsed = False  # Expandir automaticamente ao abrir conversa
     summary_text, summary_color = game.social_summary_text(survivor)
     add_chat_message(game, "radio", f"{getattr(survivor, 'name', 'Morador')} te ouviu e esperou a ordem.", PALETTE["accent_soft"], source="system")
     add_chat_message(game, getattr(survivor, "name", "morador"), summary_text, summary_color, source="npc")
@@ -168,6 +169,7 @@ def open_survivor_dialog(game, survivor: object) -> None:
 
 def close_survivor_dialog(game) -> None:
     game.dialog_survivor_name = None
+    game.chat_panel_collapsed = True  # Colapsar automaticamente ao fechar conversa
 
 
 def survivor_role_directive(_game, survivor: object) -> tuple[str, str]:

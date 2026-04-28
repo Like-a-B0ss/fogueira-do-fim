@@ -27,24 +27,24 @@ def configure_story_opening(game: "Game") -> None:
     game.spawn_budget = 0
     game.horde_active = False
     game.dynamic_event_cooldown = max(game.dynamic_event_cooldown, 42.0)
-    game.event_message = "O rádio chiou: uma clareira faminta pediu ajuda antes da primeira noite."
-    game.event_timer = 9.0
+    game.event_message = "Uma voz no rádio: help. please help. child."
+    game.event_timer = 12.0
     game.chat_messages = []
     game.add_chat_message(
-        "radio",
-        "Você sobreviveu melhor sozinho. Então uma voz pediu ajuda do outro lado da mata.",
+        "system",
+        "Você meses esqueceu como importar. Coletar, evitar risco, não se apegar - viraram lei.",
         PALETTE["muted"],
         source="system",
     )
     game.add_chat_message(
         "radio",
-        "Tem criança aqui. A fogueira apagou. A gente não sabe vigiar.",
+        "Then the radio cracked. A voice from the trees. Desperate. Asking for help.",
         PALETTE["accent_soft"],
         source="system",
     )
     game.add_chat_message(
         "menina",
-        "Você sabe acender fogo de verdade?",
+        "Você vem? Please? A fogueira vai apagar.",
         PALETTE["morale"],
         source="npc",
     )
@@ -56,32 +56,32 @@ def configure_story_opening(game: "Game") -> None:
     chief_tasks.create_chief_task(
         game,
         "story_tend_fire",
-        "Reacender a fogueira",
-        "Alimente a fogueira do grupo antes da primeira noite cair.",
+        "Reacender a esperança",
+        "A fogueira é o centro moral do grupo. Alimente-a antes que a noite caia.",
         {"id": "opening_fire"},
         {"morale": 2, "trust": 1, "wood": 1},
     )
     chief_tasks.create_chief_task(
         game,
         "talk_survivor",
-        "Ouvir o grupo",
-        "Converse com um morador e descubra quem ainda aguenta ficar de pé.",
+        "Conhecer quem você protege",
+        "Converse com um morador. Descubra seus nomes, medos e histórias.",
         {"id": "opening_talk"},
         {"morale": 1, "trust": 2},
     )
     chief_tasks.create_chief_task(
         game,
         "assign_guard",
-        "Preparar a vigia",
-        "Mande alguém ficar de vigia antes dos mortos encontrarem a cerca.",
+        "Organizar a primeira vigia",
+        "O grupo não sabe se defender. Mande alguém vigiar antes que os mortos cheguem.",
         {"id": "opening_guard"},
         {"trust": 2, "scrap": 1},
     )
     chief_tasks.create_chief_task(
         game,
         "survive_first_night",
-        "Segurar a primeira noite",
-        "Mantenha o chefe e pelo menos um morador vivos até o amanhecer.",
+        "Atravessar a primeira noite",
+        "Sobreviver sozinho era simples. Agora você é responsável por todas essas vidas.",
         {"id": "opening_night"},
         {"morale": 4, "trust": 3, "meals": 1},
     )
@@ -90,15 +90,15 @@ def configure_story_opening(game: "Game") -> None:
 
 def begin_new_game_flow(game: "Game") -> None:
     game.show_loading_screen(
-        "O chamado na mata",
-        "Uma voz no rádio pediu ajuda antes da noite fechar.",
+        "O Chamado",
+        "Uma voz no rádio quebrou seus meses de silêncio. Uma menina que precisava de ajuda.",
         progress=0.16,
         hold_seconds=0.34,
     )
     reset_runtime_session(game, seed=game.seed)
     configure_story_opening(game)
     game.update_loading_screen(
-        subtitle="Acendendo o trauma, a fogueira e a primeira vigia.",
+        subtitle="Atravessando o limiar: a primeira noite como líder.",
         progress=0.84,
         hold_seconds=0.24,
     )

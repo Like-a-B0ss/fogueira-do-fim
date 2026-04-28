@@ -11,6 +11,36 @@ def draw_chat_panel(game) -> None:
     layout = game.chat_panel_layout()
     panel = layout["panel"]
     viewport = layout["viewport"]
+
+    # Renderizar estado colapsado
+    if layout.get("collapsed", False):
+        pygame.draw.rect(game.screen, PALETTE["ui_panel"], panel, border_radius=12)
+        pygame.draw.rect(game.screen, PALETTE["ui_line"], panel, 1, border_radius=12)
+
+        # Ícone/título colapsado
+        icon = "💬" if not game.chat_messages else "📨"
+        title = game.body_font.render(f"{icon} Vozes da Clareira", True, PALETTE["text"])
+
+        # Indicador de mensagens não lidas
+        if game.chat_messages:
+            indicator_pos = (panel.x + panel.width - 28, panel.y + panel.height // 2)
+            pygame.draw.circle(game.screen, PALETTE["accent_soft"], (int(indicator_pos[0]), int(indicator_pos[1])), 6)
+            count = len(game.chat_messages)
+            count_text = game.small_font.render(str(min(count, 9)), True, (20, 20, 20))
+            count_rect = count_text.get_rect(center=indicator_pos)
+            game.screen.blit(count_text, count_rect)
+
+        # Hint para expandir
+        hint = game.small_font.render("Clique para expandir", True, PALETTE["muted"])
+
+        title_rect = title.get_rect(center=(panel.x + 80, panel.centery))
+        game.screen.blit(title, title_rect)
+        hint_rect = hint.get_rect(center=(panel.x + panel.width - 100, panel.centery))
+        game.screen.blit(hint, hint_rect)
+
+        return
+
+    # Renderizar estado expandido
     game.draw_panel(panel)
     survivor = game.active_dialog_survivor()
     if survivor:
@@ -30,6 +60,11 @@ def draw_chat_panel(game) -> None:
     subtitle_x = panel.x + 20 + title.get_width() + 14
     game.screen.blit(subtitle, (subtitle_x, panel.y + 13))
 
+    # Botão para colapsar
+    collapse_hint = game.small_font.render("▲ Clique para colapsar", True, PALETTE["muted"])
+    game.screen.blit(collapse_hint, (panel.right - collapse_hint.get_width() - 14, panel.y + 8))
+
+    # Resto da renderização (apenas quando expandido)
     previous_clip = game.screen.get_clip()
     game.screen.set_clip(viewport)
     y = viewport.y - int(game.chat_max_scroll() - game.chat_scroll)
@@ -77,12 +112,14 @@ def draw_chat_panel(game) -> None:
             )
             game.screen.blit(label, label.get_rect(center=rect.center))
     else:
-        hint = game.ui_small_font.render(
-            "O historico do campo segue aqui. A conversa e aberta morador por morador.",
-            True,
-            PALETTE["muted"],
-        )
-        game.screen.blit(hint, (panel.x + 16, panel.bottom - 28))
+        # Hint com bounds garantidos
+        hint_text = "Historico do campo. Conversa aberta por morador."
+        hint = game.ui_small_font.render(hint_text, True, PALETTE["muted"])
+        # Verificar se cabe no espaço
+        hint_x = panel.x + 16
+        hint_y = panel.bottom - 28
+        if hint_x + hint.get_width() <= panel.right - 8:
+            game.screen.blit(hint, (hint_x, hint_y))
 
 
 def draw_survivor_card(

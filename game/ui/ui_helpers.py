@@ -8,6 +8,7 @@ HUD_MARGIN = 18
 HUD_PANEL_GAP = 18
 HUD_SIDE_PANEL_WIDTH = 328
 HUD_LEFT_PANEL_WIDTH = 358
+HUD_LOWER_RIGHT_MARGIN = 6
 
 
 def title_ui_layout(game) -> dict[str, object]:
@@ -107,6 +108,22 @@ def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
     right_column_x = SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_MARGIN
     panel_width = max(420, right_column_x - HUD_PANEL_GAP - HUD_MARGIN)
     survivor = _game.active_dialog_survivor()
+
+    # Estado colapsado: painel minimalista no canto inferior esquerdo
+    if getattr(_game, "chat_panel_collapsed", True) and not survivor:
+        panel_height = 48
+        panel = pygame.Rect(HUD_MARGIN, SCREEN_HEIGHT - panel_height - HUD_MARGIN, panel_width, panel_height)
+        header = pygame.Rect(panel.x + 14, panel.y + 8, panel.width - 100, 32)
+        return {
+            "panel": panel,
+            "header": header,
+            "viewport": pygame.Rect(0, 0, 0, 0),  # Sem viewport quando colapsado
+            "scrollbar": pygame.Rect(0, 0, 0, 0),  # Sem scrollbar quando colapsado
+            "buttons": [],  # Sem botões quando colapsado
+            "collapsed": True,
+        }
+
+    # Estado expandido: layout completo
     option_count = len(_game.conversation_options_for_survivor(survivor)) if survivor else 0
     columns = 3 if option_count > 4 else 2
     button_gap = 8
@@ -139,6 +156,7 @@ def chat_panel_layout(_game) -> dict[str, pygame.Rect]:
         "viewport": viewport,
         "scrollbar": scrollbar,
         "buttons": buttons,
+        "collapsed": False,
     }
 
 
@@ -176,22 +194,119 @@ def handle_chat_panel_input(game) -> bool:
     layout = game.chat_panel_layout()
     mouse_pos = game.input_state.mouse_screen
     panel_hit = layout["panel"].collidepoint(mouse_pos)
-    if game.input_state.mouse_wheel_y and panel_hit:
-        game.adjust_chat_scroll(-game.input_state.mouse_wheel_y * 36)
-        return True
+
+    # Lógica para expandir/colapsar o painel
     if game.input_state.attack_pressed and panel_hit:
-        if game.chat_max_scroll() > 0 and layout["scrollbar"].collidepoint(mouse_pos):
-            track = layout["scrollbar"]
-            ratio = clamp((mouse_pos.y - track.y) / max(1, track.height), 0.0, 1.0)
-            game.chat_scroll = game.chat_max_scroll() * ratio
+        # Se estiver colapsado, expandir
+        if layout.get("collapsed", False):
+            game.chat_panel_collapsed = False
             game.audio.play_ui("focus")
             return True
-        survivor = game.active_dialog_survivor()
-        if survivor:
-            for rect, option in zip(layout["buttons"], game.conversation_options_for_survivor(survivor)):
-                if rect.collidepoint(mouse_pos):
-                    game.execute_survivor_dialog_action(survivor, str(option["action"]))
-                    return True
+
+        # Se estiver expandido e não clicou em elemento interativo, colapsar
+        if not layout.get("collapsed", False):
+            # Verificar se clicou na scrollbar
+            if game.chat_max_scroll() > 0 and layout["scrollbar"].collidepoint(mouse_pos):
+                track = layout["scrollbar"]
+                ratio = clamp((mouse_pos.y - track.y) / max(1, track.height), 0.0, 1.0)
+                game.chat_scroll = game.chat_max_scroll() * ratio
+                game.audio.play_ui("focus")
+                return True
+
+            # Verificar se clicou em botões de conversa
+            survivor = game.active_dialog_survivor()
+            if survivor:
+                for rect, option in zip(layout["buttons"], game.conversation_options_for_survivor(survivor)):
+                    if rect.collidepoint(mouse_pos):
+                        game.execute_survivor_dialog_action(survivor, str(option["action"]))
+                        return True
+
+            # Se não clicou em nada específico, colapsar o painel
+            game.chat_panel_collapsed = True
+            game.audio.play_ui("focus")
+            return True
+
+    # Scroll do mouse apenas quando expandido
+    if game.input_state.mouse_wheel_y and panel_hit and not layout.get("collapsed", False):
+        game.adjust_chat_scroll(-game.input_state.mouse_wheel_y * 36)
+        return True
+
+    return False
+
+
+def directive_panel_layout(game, society_panel: pygame.Rect) -> dict[str, pygame.Rect]:
+    """Layout do painel de tarefas do chefe."""
+    chat_panel = game.chat_panel_layout()["panel"]
+    directive_y = society_panel.bottom + HUD_PANEL_GAP
+    directive_height = max(148, chat_panel.y - directive_y - HUD_MARGIN)
+    directive_panel = pygame.Rect(
+        SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_LOWER_RIGHT_MARGIN,
+        directive_y,
+        HUD_SIDE_PANEL_WIDTH,
+        directive_height,
+    )
+    header_height = 40
+    viewport = pygame.Rect(
+        directive_panel.x + 16,
+        directive_panel.y + header_height,
+        directive_panel.width - 36,
+        max(0, directive_panel.height - header_height - 12),
+    )
+    scrollbar = pygame.Rect(directive_panel.right - 16, viewport.y, 8, viewport.height)
+
+    return {
+        "panel": directive_panel,
+        "header": pygame.Rect(directive_panel.x + 12, directive_panel.y + 10, directive_panel.width - 24, 30),
+        "viewport": viewport,
+        "scrollbar": scrollbar,
+    }
+
+
+def directive_content_height(game) -> int:
+    """Calcula a altura total do conteúdo das tarefas."""
+    from ..core.config import SCREEN_WIDTH
+
+    layout = directive_panel_layout(game, game.society_panel_layout()["panel"])
+    content_width = layout["viewport"].width
+    line_height = game.ui_small_font.get_linesize() + 9  # line_gap + margem
+
+    objectives = game.current_objectives()
+    if not objectives:
+        return line_height
+
+    total_height = 0
+    for objective in objectives:
+        lines = game.wrap_text_lines(game.ui_small_font, objective, content_width)
+        total_height += len(lines) * line_height + 8
+
+    return total_height
+
+
+def directive_max_scroll(game) -> float:
+    """Calcula o scroll máximo disponível."""
+    layout = directive_panel_layout(game, game.society_panel_layout()["panel"])
+    return max(0.0, float(directive_content_height(game) - layout["viewport"].height))
+
+
+def clamp_directive_scroll(game) -> None:
+    """Garante que o scroll está dentro dos limites."""
+    game.directive_scroll = clamp(game.directive_scroll, 0.0, directive_max_scroll(game))
+
+
+def adjust_directive_scroll(game, delta: float) -> None:
+    """Ajusta o scroll do painel de diretivas."""
+    game.directive_scroll = clamp(game.directive_scroll + delta, 0.0, directive_max_scroll(game))
+
+
+def handle_directive_panel_input(game) -> bool:
+    """Trata input do painel de tarefas do chefe."""
+    society_panel = game.society_panel_layout()["panel"]
+    layout = directive_panel_layout(game, society_panel)
+    mouse_pos = game.input_state.mouse_screen
+
+    # Scroll do mouse
+    if game.input_state.mouse_wheel_y and layout["panel"].collidepoint(mouse_pos):
+        game.adjust_directive_scroll(-game.input_state.mouse_wheel_y * 32)
         return True
 
     return False

@@ -19,8 +19,7 @@ def draw_hud(game) -> None:
         draw_directive_panel(game, society_panel)
     if not compact_mode or game.active_dialog_survivor():
         game.draw_chat_panel()
-    if not compact_mode:
-        draw_info_panel(game)
+    # Info panel removido - comandos agora no menu de saída
     if game.morale_flash > 0:
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         overlay.fill((255, 224, 154, int(game.morale_flash * 24)))
@@ -306,36 +305,60 @@ def draw_society_panel(game, compact_mode: bool) -> pygame.Rect:
 
 
 def draw_directive_panel(game, society_panel: pygame.Rect) -> None:
-    chat_panel = game.chat_panel_layout()["panel"]
-    directive_y = society_panel.bottom + HUD_PANEL_GAP
-    directive_height = max(148, chat_panel.y - directive_y - HUD_MARGIN)
-    directive_panel = pygame.Rect(
-        SCREEN_WIDTH - HUD_SIDE_PANEL_WIDTH - HUD_LOWER_RIGHT_MARGIN,
-        directive_y,
-        HUD_SIDE_PANEL_WIDTH,
-        directive_height,
-    )
+    layout = game.directive_panel_layout(society_panel)
+    directive_panel = layout["panel"]
+    viewport = layout["viewport"]
+    scrollbar = layout["scrollbar"]
+
     game.draw_panel(directive_panel)
     directive_title = game.heading_font.render("Tarefas do Chefe", True, PALETTE["text"])
-    title_x = directive_panel.x + 22
-    content_x = directive_panel.x + 22
-    content_width = directive_panel.width - 44
-    game.screen.blit(directive_title, (title_x, directive_panel.y + 14))
-    bullet_y = directive_panel.y + 54
-    previous_clip = game.screen.get_clip()
-    objective_view = pygame.Rect(content_x, directive_panel.y + 48, content_width, directive_panel.height - 60)
-    game.screen.set_clip(objective_view)
-    for index, line in enumerate(game.current_objectives()[:3]):
-        bullet_y = game.draw_wrapped_text(
-            game.ui_small_font,
-            f"{index + 1}. {line}",
-            PALETTE["text"],
-            content_x,
-            bullet_y,
-            content_width,
-            line_gap=1,
-        ) + 8
-    game.screen.set_clip(previous_clip)
+    game.screen.blit(directive_title, (layout["header"].x, layout["header"].y))
+
+    # Obter tarefas e garantir scroll válido
+    objectives = game.current_objectives()
+    game.clamp_directive_scroll()
+
+    if not objectives:
+        no_tasks = game.ui_small_font.render("Sem tarefas ativas no momento.", True, PALETTE["muted"])
+        game.screen.blit(no_tasks, (viewport.x + 4, viewport.y + 8))
+    else:
+        # Renderizar tarefas com scroll
+        previous_clip = game.screen.get_clip()
+        game.screen.set_clip(viewport)
+
+        content_x = viewport.x + 4
+        content_width = viewport.width - 8
+        y = viewport.y - int(game.directive_scroll)
+        line_height = game.ui_small_font.get_linesize()
+
+        for index, objective in enumerate(objectives):
+            wrapped_lines = game.wrap_text_lines(game.ui_small_font, f"{index + 1}. {objective}", content_width)
+
+            for line in wrapped_lines:
+                if y >= viewport.y - line_height and y <= viewport.bottom:
+                    rendered = game.ui_small_font.render(line, True, PALETTE["text"])
+                    game.screen.blit(rendered, (content_x, y))
+                y += line_height + 1
+
+            y += 8  # Espaçamento entre tarefas
+
+        game.screen.set_clip(previous_clip)
+
+    # Desenhar scrollbar
+    pygame.draw.rect(game.screen, (28, 36, 38), scrollbar, border_radius=6)
+    max_scroll = game.directive_max_scroll()
+    if max_scroll > 0:
+        total_height = max(viewport.height, game.directive_content_height())
+        thumb_height = max(26, int(viewport.height * (viewport.height / max(1, total_height))))
+        thumb_range = max(0, scrollbar.height - thumb_height)
+        thumb_ratio = game.directive_scroll / max_scroll if max_scroll > 0 else 0.0
+        thumb = pygame.Rect(
+            scrollbar.x,
+            scrollbar.y + int(thumb_range * thumb_ratio),
+            scrollbar.width,
+            thumb_height,
+        )
+        pygame.draw.rect(game.screen, PALETTE["accent_soft"], thumb, border_radius=6)
 
 
 def draw_info_panel(game) -> None:
@@ -349,13 +372,20 @@ def draw_info_panel(game) -> None:
     game.draw_panel(info_panel)
     content_x = info_panel.x + 22
     content_width = info_panel.width - 44
+
+    # Texto encurtado e seguro
     controls = (
         "WASD mover  |  Shift correr  |  Clique/espaço atacar",
         "E agir  |  M volume  |  F5/F9 salvar",
-        game.event_message if game.event_timer > 0 else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "Chegue perto de um morador e aperte E para conversar."),
+        game.event_message if game.event_timer > 0 else (game.dynamic_event_summary() or game.expedition_status_text(short=False) or "Approach survivors and press E."),
     )
+
     line_y = info_panel.y + 14
+    max_line_y = info_panel.bottom - 8
+
     for index, line in enumerate(controls):
+        if line_y >= max_line_y:
+            break  # Não ultrapassar o box
         font = game.ui_small_font if index < 2 else game.body_font
         color = PALETTE["text"] if index < 2 else (PALETTE["danger_soft"] if game.active_dynamic_events else PALETTE["muted"])
         line_y = game.draw_wrapped_text(
@@ -365,8 +395,8 @@ def draw_info_panel(game) -> None:
             content_x,
             line_y,
             content_width,
-            line_gap=2,
-        ) + 6
+            line_gap=1,
+        ) + 5
 
 
 

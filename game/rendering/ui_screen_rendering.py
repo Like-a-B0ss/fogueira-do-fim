@@ -66,9 +66,10 @@ def draw_title_screen(game) -> None:
     pygame.draw.rect(frame, (124, 96, 70, int(70 * (intro_alpha / 255 if intro_alpha else 0))), frame.get_rect(), 1, border_radius=28)
     game.screen.blit(frame, panel.topleft)
 
+    # Título e subtítulo melhorados
     title = game.title_font.render("Fogueira do Fim", True, PALETTE["text"])
     subtitle = game.body_font.render(
-        "Sociedade, acampamento e zumbis em um mundo procedural hostil.",
+        "Liderança. Sobrevivência. Redenção. Em um mundo que não perdoa.",
         True,
         PALETTE["accent_soft"],
     )
@@ -77,19 +78,29 @@ def draw_title_screen(game) -> None:
     live_tag = game.ui_small_font.render("Simulação viva ao fundo", True, PALETTE["morale"])
     game.screen.blit(live_tag, (panel.right - live_tag.get_width() - 40, panel.y + 48))
 
+    # Card esquerdo - Narrativa motivadora
     left_card = layout["left_card"]
     game.draw_panel(left_card, alpha_scale=0.7)
-    section = game.heading_font.render("Noite Sobre a Clareira", True, PALETTE["text"])
+
+    # Seção com texto seguro e alinhado
+    section_title = "Sua Jornada Começa"
+    section = game.heading_font.render(section_title, True, PALETTE["text"])
     game.screen.blit(section, (left_card.x + 20, left_card.y + 18))
+
+    # Texto motivador e descritivo com bounds garantidos
     pitch_lines = [
-        "Ao fundo, o campo continua respirando: sobreviventes rondam, fogo pulsa e a floresta nunca dorme.",
-        "Você lidera gente exausta no meio da mata, administrando sono, fome, medo e lealdade.",
-        "A base cresce por barracas, oficinas, barricadas e expedições para muito além da primeira linha de árvores.",
-        "Cada noite cobra leitura social e defesa; cada dia cobra recurso, risco e presença.",
+        "Você sobreviveu sozinho por meses. Então uma voz no rádio pediu ajuda.",
+        "Entre os sobreviventes, uma menina que lembra o que você perdeu.",
+        "Agora você é o líder. Cada decisão pesa: quem come, quem dorme.",
+        "Construa seu acampamento. Gerencie conflitos. Proteja quem restou.",
     ]
     paragraph_y = left_card.y + 64
     text_width = left_card.width - 40
+    max_paragraph_y = left_card.bottom - 140  # Reserva espaço para feature_box
+
     for line in pitch_lines:
+        if paragraph_y >= max_paragraph_y:
+            break  # Não ultrapassar o box
         paragraph_y = game.draw_wrapped_text(
             game.body_font,
             line,
@@ -97,18 +108,24 @@ def draw_title_screen(game) -> None:
             left_card.x + 20,
             paragraph_y,
             text_width,
-            line_gap=4,
-        ) + 12
+            line_gap=3,
+        ) + 10
 
     feature_box = pygame.Rect(left_card.x + 18, left_card.bottom - 126, left_card.width - 36, 92)
     pygame.draw.rect(game.screen, PALETTE["ui_panel"], feature_box, border_radius=14)
     pygame.draw.rect(game.screen, PALETTE["ui_line"], feature_box, 1, border_radius=14)
+
+    # Feature lines com bounds garantidos
     feature_lines = [
-        "Comece um novo turno, revise o último save ou ajuste a apresentação antes de entrar.",
-        "Ao iniciar um jogo novo, uma sequência curta de dicas aparece e pode ser pulada a qualquer momento.",
+        "Não existem escolhas fáceis. Existem as que você consegue viver.",
+        "Cada partida é única. Construa sua história neste mundo.",
     ]
-    feature_y = feature_box.y + 16
+    feature_y = feature_box.y + 14
+    max_feature_y = feature_box.bottom - 8
+
     for index, line in enumerate(feature_lines):
+        if feature_y >= max_feature_y:
+            break
         feature_y = game.draw_wrapped_text(
             game.ui_small_font,
             line,
@@ -116,22 +133,29 @@ def draw_title_screen(game) -> None:
             feature_box.x + 14,
             feature_y,
             feature_box.width - 28,
-            line_gap=2,
-        ) + 6
+            line_gap=1,
+        ) + 5
 
+    # Card direito - Menu de ações
     right_card = layout["right_card"]
     game.draw_panel(right_card, alpha_scale=0.7)
     mouse_pos = game.input_state.mouse_screen if hasattr(game, "input_state") else pygame.Vector2()
-    menu_title = game.heading_font.render("Entrada da Clareira", True, PALETTE["text"])
+
+    # Menu title com bounds garantidos
+    menu_title_text = "Entrar na Clareira"
+    menu_title = game.heading_font.render(menu_title_text, True, PALETTE["text"])
     game.screen.blit(menu_title, (right_card.x + 20, right_card.y + 18))
+
+    # Subtitle com quebra de linha segura
+    subtitle_text = "O acampamento espera. O mundo não espera."
     game.draw_wrapped_text(
         game.ui_small_font,
-        "Tela cheia, mouse ativo e simulação viva atrás do menu principal.",
+        subtitle_text,
         PALETTE["muted"],
         right_card.x + 20,
         right_card.y + 48,
         right_card.width - 40,
-        line_gap=2,
+        line_gap=1,
     )
 
     if not game.title_settings_open:
@@ -140,34 +164,50 @@ def draw_title_screen(game) -> None:
             active = game.title_action_index == index or row.collidepoint(mouse_pos)
             pygame.draw.rect(game.screen, (52, 68, 72) if active else PALETTE["ui_panel"], row, border_radius=14)
             pygame.draw.rect(game.screen, PALETTE["accent_soft"] if active else PALETTE["ui_line"], row, 1, border_radius=14)
-            label = game.body_font.render(action, True, PALETTE["text"])
-            if action == "Continuar":
-                prompt_text = "Retomar o último acampamento salvo."
-            elif action == "Novo Jogo":
-                prompt_text = "Entrar na clareira."
-            elif action == "Configurações":
-                prompt_text = "Abrir a aba de ajustes."
-            else:
-                prompt_text = "Fechar a sessão."
+
+            # Label do botão com truncamento se necessário
+            label_text = str(action)
+            label = game.body_font.render(label_text, True, PALETTE["text"])
+            max_label_width = row.width - 32
+            if label.get_width() > max_label_width:
+                label = game.body_font.render(label_text[:18] + "...", True, PALETTE["text"])
             game.screen.blit(label, (row.x + 16, row.y + 9))
-            game.draw_wrapped_text(
-                game.ui_small_font,
-                prompt_text,
-                PALETTE["muted"],
-                row.x + 16,
-                row.y + 27,
-                row.width - 32,
-                line_gap=0,
-            )
+
+            # Prompt com bounds garantidos
+            if action == "Continuar":
+                prompt_text = "Retomar sua jornada. Seu acampamento espera."
+            elif action == "Novo Jogo":
+                prompt_text = "Começar do zero. Nova história. Nova chance."
+            elif action == "Configurações":
+                prompt_text = "Ajustar som, vídeo e interface."
+            else:
+                prompt_text = "Fechar o jogo e voltar ao mundo real."
+
+            # Clip para garantir que o prompt não ultrapasse o botão
+            prompt_y = row.y + 27
+            max_prompt_y = row.bottom - 4
+            if prompt_y < max_prompt_y:
+                previous_clip = game.screen.get_clip()
+                game.screen.set_clip(pygame.Rect(row.x + 16, prompt_y, row.width - 32, max_prompt_y - prompt_y))
+                game.draw_wrapped_text(
+                    game.ui_small_font,
+                    prompt_text,
+                    PALETTE["muted"],
+                    row.x + 16,
+                    prompt_y,
+                    row.width - 32,
+                    line_gap=0,
+                )
+                game.screen.set_clip(previous_clip)
     else:
         settings_panel = layout["settings_panel"]
         game.draw_panel(settings_panel)
         settings_title = game.heading_font.render("Configurações", True, PALETTE["text"])
-        settings_subtitle = game.ui_small_font.render(
-            "Clique em - e + ou use A e D para ajustar a linha marcada.",
-            True,
-            PALETTE["muted"],
-        )
+
+        # Subtitle com quebra de linha segura
+        settings_subtitle_text = "Use -/+ ou A/D para ajustar."
+        settings_subtitle = game.ui_small_font.render(settings_subtitle_text, True, PALETTE["muted"])
+
         back_hover = layout["settings_back"].collidepoint(mouse_pos)
         pygame.draw.rect(
             game.screen,
@@ -177,8 +217,18 @@ def draw_title_screen(game) -> None:
         )
         pygame.draw.rect(game.screen, PALETTE["ui_line"], layout["settings_back"], 1, border_radius=10)
         back_text = game.ui_small_font.render("Voltar", True, PALETTE["text"])
-        game.screen.blit(settings_title, (settings_panel.x + 18, settings_panel.y + 16))
-        game.screen.blit(settings_subtitle, (settings_panel.x + 18, settings_panel.y + 46))
+
+        # Bounds garantidos para títulos
+        title_y = settings_panel.y + 16
+        max_title_y = settings_panel.y + 40
+        if title_y < max_title_y:
+            game.screen.blit(settings_title, (settings_panel.x + 18, title_y))
+
+        subtitle_y = settings_panel.y + 46
+        max_subtitle_y = settings_panel.y + 62
+        if subtitle_y < max_subtitle_y:
+            game.screen.blit(settings_subtitle, (settings_panel.x + 18, subtitle_y))
+
         game.screen.blit(back_text, back_text.get_rect(center=layout["settings_back"].center))
 
         for index, ((key, label, _, _, _), item) in enumerate(zip(game.title_setting_entries, layout["setting_rows"])):
@@ -194,7 +244,15 @@ def draw_title_screen(game) -> None:
             pygame.draw.rect(game.screen, PALETTE["ui_line"], item["plus"], 1, border_radius=7)
             pygame.draw.rect(game.screen, (32, 40, 42), item["value"], border_radius=7)
             pygame.draw.rect(game.screen, PALETTE["ui_line"], item["value"], 1, border_radius=7)
+
+            # Label com truncamento se necessário
+            max_label_width = item["value"].x - row.x - 16
             left = game.ui_small_font.render(label, True, PALETTE["text"])
+            if left.get_width() > max_label_width:
+                # Truncar label longo
+                truncated_label = label[:18] + "..." if len(label) > 18 else label
+                left = game.ui_small_font.render(truncated_label, True, PALETTE["text"])
+
             value = game.ui_small_font.render(
                 game.title_setting_value_label(str(key)),
                 True,
@@ -489,12 +547,12 @@ def draw_exit_prompt(game) -> None:
     layout = game.exit_prompt_layout()
     panel = layout["panel"]
     game.draw_panel(panel)
-    title = game.heading_font.render("Sair da vigia?", True, PALETTE["text"])
+    title = game.heading_font.render("Voltar ao Menu Principal?", True, PALETTE["text"])
     game.screen.blit(title, (panel.x + 26, panel.y + 18))
 
     subtitle_y = game.draw_wrapped_text(
         game.body_font,
-        "Escolha se quer salvar antes de fechar o jogo.",
+        "Escolha se quer salvar antes de voltar ao menu principal.",
         PALETTE["muted"],
         panel.x + 26,
         panel.y + 58,

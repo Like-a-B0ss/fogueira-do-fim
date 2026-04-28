@@ -46,6 +46,10 @@ class Game(WorldMixin, RenderMixin):
         seed: int | None = None,
         smoke_test: bool = False,
         reuse_display: bool = False,
+        force_fullscreen: bool | None = None,
+        force_window: bool = None,
+        custom_width: int | None = None,
+        custom_height: int | None = None,
     ) -> None:
         self.seed = seed
         self.seed_value = seed if seed is not None else 0
@@ -53,16 +57,27 @@ class Game(WorldMixin, RenderMixin):
         random.seed(seed)
         pygame.init()
         pygame.display.set_caption("Fogueira do Fim")
-        fullscreen = bool(DISPLAY_SETTINGS.get("fullscreen", True))
+
+        # Determinar fullscreen
+        fullscreen = bool(DISPLAY_SETTINGS.get("fullscreen", False))
+        if force_fullscreen is not None:
+            fullscreen = force_fullscreen
+        elif force_window:
+            fullscreen = False
+
+        # Determinar resolução
+        screen_width = custom_width if custom_width else SCREEN_WIDTH
+        screen_height = custom_height if custom_height else SCREEN_HEIGHT
+
         if fullscreen and not smoke_test:
             display_info = pygame.display.Info()
             display_size = (
-                max(1, int(display_info.current_w or SCREEN_WIDTH)),
-                max(1, int(display_info.current_h or SCREEN_HEIGHT)),
+                max(1, int(display_info.current_w or screen_width)),
+                max(1, int(display_info.current_h or screen_height)),
             )
             flags = pygame.FULLSCREEN
         else:
-            display_size = (SCREEN_WIDTH, SCREEN_HEIGHT)
+            display_size = (screen_width, screen_height)
             flags = 0
         existing_screen = pygame.display.get_surface() if reuse_display else None
         if (
@@ -106,10 +121,13 @@ class Game(WorldMixin, RenderMixin):
         self.title_bg_spawn_timer = float(spawn_range[0])
         self.bark_timer = 3.2
         self.exit_prompt_open = False
-        self.exit_prompt_options = ("Salvar e Sair", "Sair sem Salvar", "Cancelar")
+        self.exit_prompt_options = ("Salvar e Voltar ao Menu", "Voltar ao Menu sem Salvar", "Comandos", "Cancelar")
         self.exit_prompt_index = 0
+        self.controls_panel_open = False
         self.society_panel_collapsed = False
+        self.chat_panel_collapsed = True
         self.society_scroll = 0.0
+        self.directive_scroll = 0.0
         self.society_selected_survivor_name: str | None = None
         self.hud_compact_mode = False
         self.chat_messages: list[dict[str, object]] = []
@@ -340,6 +358,9 @@ class Game(WorldMixin, RenderMixin):
     def close_exit_prompt(self) -> None:
         title_flow.close_exit_prompt(self)
 
+    def return_to_title_screen(self) -> None:
+        title_flow.return_to_title_screen(self)
+
     def exit_prompt_layout(self) -> dict[str, object]:
         return title_flow.exit_prompt_layout(self)
 
@@ -348,6 +369,12 @@ class Game(WorldMixin, RenderMixin):
 
     def handle_exit_prompt_input(self) -> bool:
         return title_flow.handle_exit_prompt_input(self)
+
+    def controls_panel_layout(self) -> dict[str, object]:
+        return title_flow.controls_panel_layout(self)
+
+    def handle_controls_panel_input(self) -> bool:
+        return title_flow.handle_controls_panel_input(self)
 
     def refresh_title_actions(self) -> None:
         title_flow.refresh_title_actions(self)
@@ -388,6 +415,24 @@ class Game(WorldMixin, RenderMixin):
 
     def adjust_chat_scroll(self, delta: float) -> None:
         dialogue_helpers.adjust_chat_scroll(self, delta)
+
+    def directive_panel_layout(self, society_panel: pygame.Rect) -> dict[str, pygame.Rect]:
+        return ui_helpers.directive_panel_layout(self, society_panel)
+
+    def directive_content_height(self) -> int:
+        return ui_helpers.directive_content_height(self)
+
+    def directive_max_scroll(self) -> float:
+        return ui_helpers.directive_max_scroll(self)
+
+    def clamp_directive_scroll(self) -> None:
+        ui_helpers.clamp_directive_scroll(self)
+
+    def adjust_directive_scroll(self, delta: float) -> None:
+        ui_helpers.adjust_directive_scroll(self, delta)
+
+    def handle_directive_panel_input(self) -> bool:
+        return ui_helpers.handle_directive_panel_input(self)
 
     def directive_label(self, directive: str) -> str:
         return dialogue_helpers.directive_label(self, directive)
@@ -659,9 +704,44 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="executa alguns frames e sai; util para verificacao automatica",
     )
+    parser.add_argument(
+        "--window", "-w",
+        action="store_true",
+        help="inicia em modo janela (nao fullscreen)",
+    )
+    parser.add_argument(
+        "--fullscreen", "-f",
+        action="store_true",
+        help="inicia em tela cheia",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=str,
+        default=None,
+        help="resolucao personalizada (ex: 1280x720)",
+    )
     args = parser.parse_args(argv)
 
-    game = Game(seed=args.seed, smoke_test=args.smoke_test)
+    # Processar resolução personalizada
+    custom_width = None
+    custom_height = None
+    if args.resolution:
+        try:
+            width, height = args.resolution.lower().split("x")
+            custom_width = int(width)
+            custom_height = int(height)
+        except (ValueError, AttributeError):
+            print(f"Aviso: resolucao invalida '{args.resolution}'. Usando padrao.")
+
+    # Criar jogo com parâmetros de display
+    game = Game(
+        seed=args.seed,
+        smoke_test=args.smoke_test,
+        force_fullscreen=args.fullscreen if args.fullscreen else None,
+        force_window=args.window,
+        custom_width=custom_width,
+        custom_height=custom_height,
+    )
     try:
         return game.run()
     finally:

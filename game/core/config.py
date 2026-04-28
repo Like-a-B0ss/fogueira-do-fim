@@ -11,10 +11,10 @@ from pygame import Vector2
 
 DEFAULT_GAME_SETTINGS: dict[str, object] = {
     "display": {
-        "screen_width": 1480,
-        "screen_height": 900,
+        "screen_width": 1280,
+        "screen_height": 720,
         "fps": 60,
-        "fullscreen": True,
+        "fullscreen": False,
     },
     "world": {
         "world_width": 2800,
