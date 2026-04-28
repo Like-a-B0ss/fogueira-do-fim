@@ -1,0 +1,199 @@
+Parte 1: A Jornada do Herói — Fogueira do Fim
+Discentes: Kiury W. Mariano; Leoanrdo Paes.
+
+1. Mundo Comum
+
+Antes do colapso, o protagonista levava uma vida simples: trabalhava, cuidava da casa e criava sua filha pequena.
+A rotina era previsível, quase banal — até o dia em que uma explosão devastadora atinge a cidade vizinha.
+
+Nos dias seguintes, o mundo entra em colapso:
+- comunicação falha
+- pessoas adoecem
+- comportamentos violentos surgem
+
+Quando ele finalmente retorna para casa… já é tarde demais.
+Sua família está contaminada.
+
+Ele toma a decisão mais difícil da sua vida: acabar com o sofrimento deles.
+
+Explicação:
+- Cria um trauma central forte (culpa + perda).
+- Justifica o perfil frio/pragmático nas decisões do jogo.
+- Dá base emocional para o sistema de moral e escolhas duras.
+
+
+2. Chamado para a Aventura
+
+Meses depois, ele sobrevive sozinho com eficiência extrema:
+- coleta
+- caça
+- evita riscos
+- não se apega
+
+Até encontrar um pequeno grupo à beira do colapso:
+- famintos
+- desorganizados
+- emocionalmente quebrados
+
+Entre eles, há uma menina.
+
+Ela não é idêntica à filha dele — mas:
+- o jeito de falar
+- a forma de observar
+- pequenos hábitos
+
+Isso quebra a lógica fria que ele construiu.
+Ele percebe que pode ir embora
+Mas escolhe ficar.
+
+Esse é o chamado: voltar a se importar.
+Explicação:
+- Gatilho emocional direto e forte.
+- Justifica por que ele aceita liderar.
+- Conecta com a fantasia de “proteger uma sociedade frágil”.
+
+
+3. Mentor
+
+O mentor vem pelo rádio — um sobrevivente experiente de um antigo assentamento.
+
+Essa voz:
+- já liderou um grupo grande
+- já perdeu tudo
+- fala com pragmatismo brutal
+
+Ele não ensina “como salvar todos”…
+Ele ensina como decidir quem pode ser salvo.
+
+Com o tempo, fica implícito que:
+- esse líder falhou no passado
+- o protagonista pode repetir os mesmos erros
+
+Explicação:
+- Mentor não idealizado → mais realista.
+- Serve como guia mecânico (tutorial indireto).
+- Reforça o tema: liderança é custo, não poder.
+
+
+4. Travessia do Limiar
+
+A primeira noite com o grupo é um desastre.
+
+barricadas improvisadas
+ninguém sabe vigiar direito
+pânico coletivo
+
+Quando os zumbis chegam, o grupo quase colapsa.
+
+O protagonista assume controle:
+- organiza defesa
+- posiciona pessoas
+- mantém a fogueira viva
+
+Ali, ele deixa de ser sobrevivente solitário.
+Ele se torna líder.
+
+Explicação:
+- Integra diretamente com o primeiro ciclo de gameplay.
+- A fogueira ganha significado simbólico e mecânico.
+- Marca a virada de identidade do personagem.
+
+
+5. Testes e Aliados
+
+O grupo cresce, mas os problemas escalam:
+- conflitos internos
+- exaustão
+- insanidade
+- disputas de poder
+- pedidos de abrigo
+
+A menina passa a confiar nele — e isso influencia outros.
+
+Mas nem todos concordam com sua liderança.
+
+Explicação:
+- Representa o sistema de:
+- confiança no líder
+- relações sociais
+- memória social
+- Introduz tensão interna além da externa.
+
+
+6. Grande Provação
+
+Uma crise dupla atinge o acampamento:
+- uma horda massiva se aproxima
+- uma facção exige recursos sob ameaça
+
+Ao mesmo tempo, a menina adoece.
+
+O protagonista precisa decidir:
+- usar recursos nela
+- proteger o grupo inteiro
+- ou negociar com inimigos
+
+Não existe escolha “certa”.
+
+Explicação:
+- Conecta diretamente com:
+- eventos dinâmicos
+- sistema de recursos
+- decisões morais
+- Coloca emoção vs eficiência em conflito direto.
+
+
+7. Recompensa
+
+Se o grupo sobrevive:
+- o acampamento se fortalece
+- novas estruturas surgem
+- o grupo passa a confiar mais nele
+
+Mas o protagonista muda:
+- mais frio
+- mais calculista
+- mais distante
+
+Ou… mais humano, dependendo das escolhas.
+
+Explicação:
+- Recompensa dual: mecânica + psicológica.
+- Reflete progressão da base e do personagem.
+- Permite narrativa emergente baseada no jogador.
+
+
+8. Batalha Final
+
+O protagonista descobre regiões dominadas por entidades que não são apenas zumbis — são centros de colapso do mundo.
+
+Para garantir o futuro do grupo, ele precisa:
+- liderar expedições
+- enfrentar esses chefes
+- sair da segurança do acampamento
+
+A batalha final não é só contra um inimigo…
+É contra o limite do medo e da perda.
+
+Explicação:
+- Conecta com bosses de zona e exploração.
+- Escala o jogo para médio/longo prazo.
+- Mantém coerência com progressão.
+
+
+9. Retorno do Herói
+
+Ele retorna ao acampamento.
+
+A menina está viva… ou não.
+O grupo prospera… ou está à beira do colapso.
+
+A fogueira continua acesa.
+
+Mas agora ela não representa só sobrevivência —
+representa tudo o que foi sacrificado para mantê-la viva.
+
+Explicação:
+- Final aberto e sistêmico.
+- Reflete diretamente o estado do save/jogo.
+- Reforça o loop contínuo.

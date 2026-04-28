@@ -1,9 +1,9 @@
 {
   "display": {
-    "screen_width": 1480,
-    "screen_height": 900,
+    "screen_width": 1280,
+    "screen_height": 720,
     "fps": 60,
-    "fullscreen": true
+    "fullscreen": false
   },
   "world": {
     "world_width": 2800,
