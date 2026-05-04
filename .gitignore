@@ -5,6 +5,9 @@ __pycache__/
 venv/
 env/
 
+build/
+dist/
+
 savegame.json
 savegame_fog.png
 savegame_test.json
